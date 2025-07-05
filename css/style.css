@@ -1,68 +1,142 @@
 /* css/style.css */
 
 /* --- 기본 스타일 --- */
-body { 
-    font-family: 'Pretendard', sans-serif; 
-    background-color: #f8fafc; 
+body {
+    font-family: 'Pretendard', sans-serif;
+    background-color: #f1f5f9;
 }
-.card { 
-    background-color: white; 
-    border-radius: 0.75rem; 
-    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.07); 
-    padding: 1.5rem; 
+
+/* ★★★ 수정: 타이포그래피 및 레이아웃 클래스 ★★★ */
+.page-title {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #1e293b;
 }
-.input-field { 
-    background-color: #f8fafc; 
+.page-subtitle {
+    color: #64748b;
+    margin-top: 0.5rem;
+    font-size: 1rem;
+}
+.input-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #475569;
+}
+.input-tip-details {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-top: 0.5rem;
+}
+.input-tip-details summary {
+    cursor: pointer;
+    display: inline-block;
+}
+.tip-content {
+    margin-top: 0.25rem;
+    padding: 0.5rem;
+    background-color: #f8fafc;
+    border-radius: 0.25rem;
+}
+
+
+/* 네비게이션 바 스타일 */
+.nav-button {
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    font-weight: 600;
+    color: #475569;
+    transition: all 0.2s;
+    border: 2px solid transparent;
+    white-space: nowrap;
+}
+.nav-button:hover {
+    background-color: #f8fafc;
+    color: #334155;
+}
+.nav-button.active {
+    color: #4338ca;
+    background-color: #eef2ff;
+}
+
+/* 페이지 컨텐츠 스타일 */
+.page-content { display: none; }
+.page-content.active { display: block; }
+
+
+.card {
+    background-color: white;
+    border-radius: 0.75rem;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.07);
+    padding: 1.5rem;
+}
+.input-field {
+    background-color: #f8fafc;
     border-color: #e2e8f0;
-    padding: 0.75rem; 
+    padding: 0.75rem;
 }
-.input-field:focus { 
-    border-color: #4338ca; 
-    box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.2); 
-    outline: none; 
+.input-field:focus {
+    border-color: #4338ca;
+    box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.2);
+    outline: none;
 }
-.section-title { 
-    font-weight: 600; 
-    font-size: 1.125rem; 
-    color: #1e293b; 
-    display: flex; 
-    align-items: center; 
-    gap: 0.5rem; 
+.section-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 .status-safe { background-color: #f0fdf4; color: #16a34a; }
 .status-warning { background-color: #fefce8; color: #ca8a04; }
 .status-danger { background-color: #fef2f2; color: #dc2626; }
-.table-container { 
-    max-height: 480px;
-    overflow: auto; 
+.table-container {
+    overflow-x: auto;
 }
-.turnaround-point, .retirement-point { 
-    background-color: #eff6ff !important; 
-    font-weight: 600; 
+.turnaround-point, .retirement-point {
+    background-color: #eff6ff !important;
+    font-weight: 600;
 }
 .retirement-point { color: #be123c; }
 .tab-button.active { color: #4338ca; border-color: #4338ca; }
 .tab-button { color: #64748b; border-color: transparent; }
 details > summary { list-style: none; cursor: pointer; }
 details > summary::-webkit-details-marker { display: none; }
-details[open] summary .arrow-down { transform: rotate(180deg); }
 
-
-/* --- 모바일 반응형 테이블 스타일 --- */
+/* --- 모바일 반응형 스타일 --- */
 @media screen and (max-width: 768px) {
-    .table-container thead { display: none; }
-    .table-container table, .table-container tbody, .table-container tr { display: block; width: 100%; }
-    .table-container tr { margin-bottom: 1rem; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.5rem; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); }
-    .table-container td { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0.5rem; text-align: right; border-bottom: 1px dashed #f1f5f9; }
-    .table-container tr td:last-child { border-bottom: none; }
-    .table-container td::before { content: attr(data-label); font-weight: 600; color: #475569; text-align: left; margin-right: 1rem; }
-    .table-container tr td:first-child { padding: 0.5rem; justify-content: center; background-color: #f8fafc; border-radius: 0.25rem; margin-bottom: 0.5rem; font-weight: 700; color: #334155; }
-    .table-container tr td:first-child::before { display: none; }
+    body { padding: 0.5rem; }
+    main { padding: 1rem 0.5rem; }
+    .card { padding: 1rem; }
+
+    .page-title { font-size: 1.5rem; }
+    .page-subtitle { font-size: 0.875rem; }
+
+    header .text-xl { font-size: 1rem; }
+    .nav-button {
+        padding: 0.5rem 0.25rem;
+        font-size: 0.75rem;
+    }
+
+    #financial-results-page > div:first-child,
+    #final-analysis-page .flex {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+    
+    #diagnosis-content {
+        grid-template-columns: 1fr !important;
+    }
+    
+    .mobile-table th, .mobile-table td {
+        font-size: 0.75rem;
+        padding: 0.75rem 0.5rem;
+        white-space: nowrap;
+    }
 }
 
-.input-helper { font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; }
-
-/* --- QoL Analysis Page Styles --- */
+/* QoL Analysis Page Styles */
 .qol-section { background-color: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; overflow: hidden; }
 .qol-section summary { padding: 1rem 1.5rem; font-size: 1.125rem; font-weight: 600; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; }
 .qol-section summary::-webkit-details-marker { display: none; }
@@ -70,7 +144,6 @@ details[open] summary .arrow-down { transform: rotate(180deg); }
 .input-title { font-weight: 600; margin-bottom: 0.5rem; font-size: 0.875rem; color: #334155; }
 .commentary-box { margin-top: 1.5rem; padding: 1rem; background-color: #f8fafc; border-radius: 0.5rem; font-size: 0.875rem; color: #475569; line-height: 1.6; }
 
-/* ★★★ 수정: 월 예상 가치 UI 스타일 수정 ★★★ */
 .result-box {
     margin-top: 1rem;
     padding: 1rem;
@@ -79,7 +152,7 @@ details[open] summary .arrow-down { transform: rotate(180deg); }
     border-radius: 0.5rem;
     display: flex;
     justify-content: space-between;
-    align-items: flex-start; /* 상단 정렬 */
+    align-items: flex-start;
 }
 .result-box .label { font-weight: 600; }
 .result-box .value { font-size: 1.25rem; font-weight: 700; }
@@ -89,7 +162,6 @@ details[open] summary .arrow-down { transform: rotate(180deg); }
 .checklist-label { display: flex; align-items: center; gap: 0.75rem; font-size: 0.875rem; padding: 0.5rem; border-radius: 0.375rem; }
 .checklist-label:hover { background-color: #f7f7f9; }
 
-/* ★★★ 추가: 자세히 보기 토글 UI 스타일 ★★★ */
 .details-toggle {
     background: none;
     border: none;
