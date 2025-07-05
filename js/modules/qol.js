@@ -8,18 +8,23 @@ import { calculateNetIncomeData, getTaxFromBase } from './calculations.js';
 // =================================================================
 const QOL_DATA = {
     commute: {
-        baseTime: 30, workDays: 21, timeValueRatio: 0.33, walkPremium: 1.2,
+        baseTime: 33,
+        // ★★★ 수정: 대전시 평균 통근 교통비 기준점 추가 ★★★
+        baseCost: 91000, 
+        workDays: 21, 
+        timeValueRatio: 0.33, 
+        walkPremium: 1.2,
         weights: [ { limit: 20, weight: 0.8 }, { limit: 30, weight: 1.0 }, { limit: 45, weight: 1.5 }, { limit: 60, weight: 2.2 }, { limit: Infinity, weight: 3.0 }, ],
     },
-    housing: { new: 150000, renovated: 50000, remodelPeriod: 120, },
+    housing: { new: 250000, renovated: 100000, remodelPeriod: 120, },
     infra: {
-        max_value: 250000,
-        items: { '대중교통(지하철)': 80000, '대형쇼핑몰(백화점/아울렛)': 70000, '대형마트': 40000, '슬세권(편의점/카페)': 30000, '종합병원(상급)': 50000, '관공서/은행': 10000, '대규모 공원(녹지)': 60000, '수변공간(강/호수)': 50000, '문화시설(영화관/공연장)': 20000, '체육시설': 15000 }
+        max_value: 300000,
+        items: { '대중교통(지하철)': 80000, '대형쇼핑몰(백화점/아울렛)': 70000, '대형마트': 40000, '슬세권(편의점/카페)': 30000, '종합병원(상급)': 50000, '관공서/은행': 10000, '대규모 공원(녹지)': 60000, '수변공간(강/호수)': 80000, '문화시설(영화관/공연장)': 20000, '체육시설': 15000 }
     },
     view: {
-        types: { '막힘': -50000, '도심': 20000, '단지 내': 40000, '트인 뷰': 60000, '공원/산': 80000, '강/호수': 150000 },
-        openness: { '답답함': -20000, '일부 막힘': -5000, '좋음': 20000, '파노라마': 50000 },
-        amenities: { '남향/채광우수': 30000, '넓은 동간거리': 20000 }
+        types: { '막힘': -50000, '도심': 20000, '단지 내': 30000, '트인 뷰': 60000, '공원/산': 80000, '강/호수': 150000 },
+        openness: { '답답함': -40000, '일부 막힘': -20000, '좋음': 40000, '파노라마': 50000 },
+        amenities: { '남향/채광우수': 30000, '넓은 동간거리': 10000 }
     },
     education: {
         stages: { '해당 없음': 0, '자녀 계획중': 0, '영유아': 0, '초등학생': 0, '중/고등학생': 0 },
@@ -103,20 +108,25 @@ function updateEduChecklistVisibility() {
 // 4. 가치 계산 함수들 (Calculators)
 // =================================================================
 const qolCalculators = {
+    // ★★★ 수정: 자세히 보기에 실제 계산식을 보여주는 로직 추가 ★★★
     commute: () => {
         const p1 = calculateSingleCommute(1);
-        const p2 = appState.inputs.borrowerCount === 2 ? calculateSingleCommute(2) : { value: 0, commentary: '' };
+        const p2 = appState.inputs.borrowerCount === 2 ? calculateSingleCommute(2) : { value: 0, commentary: '', details: '' };
         const totalValue = p1.value + p2.value;
+
         const commentary = `<p><strong>통근자 1:</strong> ${p1.commentary}</p>${p2.commentary ? `<p class="mt-2"><strong>통근자 2:</strong> ${p2.commentary}</p>` : ''}`;
         const details = `
             <p class='font-bold text-slate-700'>핵심 아이디어</p>
             <p>통근은 돈과 시간뿐 아니라 정신적/육체적 '피로도'를 소모하는 활동입니다. 이 피로도의 가치를 돈으로 환산합니다.</p>
             <p class='font-bold text-slate-700 mt-2'>계산 방식</p>
-            <ol class='list-decimal list-inside text-sm'>
-                <li><strong>나의 시간당 가치 계산:</strong> 연봉 기준, 나의 1시간 노동 가치를 계산합니다. (나의 시급)</li>
-                <li><strong>기준 시간(30분) 대비 손익 계산:</strong> 평균 통근 시간(30분)보다 길거나 짧은 만큼의 가치를 계산합니다.</li>
-                <li><strong>피로도 가중치 적용:</strong> 통근 시간이 길수록 피로도는 급격히 늘어나는 점을 '가중치'로 반영합니다.</li>
+            <ol class='list-decimal list-inside text-sm space-y-1'>
+                <li><strong>나의 시간당 가치 계산:</strong> 입력하신 연봉을 기준으로, 나의 1시간 노동이 얼마의 가치를 갖는지 계산합니다. (나의 시급)</li>
+                <li><strong>기준 시간(33분) 대비 손익 계산:</strong> 통계청 조사 기준, 대전 직장인 평균 통근 시간(편도 33분)보다 얼마나 더 길거나 짧은지 비교하여 가치를 계산합니다.</li>
+                <li><strong> 충청권 직장인의 평균 통근 거리는 왕복 31.6km(15.8km x 2), 연비 12km/L, 유가 1650원/L 적용 시 91,000원:</strong> 평균 교통비와 비교하여 가치를 계산합니다.</li>
+                <li><strong>피로도 가중치 적용:</strong> 통근 시간이 길어질수록 피로도는 2배, 3배로 급격히 늘어납니다. 이 비례적인 피로도 증가를 '가중치'로 적용하여 현실성을 높였습니다.</li>
             </ol>
+            <p class='font-bold text-slate-700 mt-2'>직접 수정 가이드</p>
+            <p class='text-sm'>"나는 원래 출퇴근에 극심한 스트레스를 받는다" 등 통근에 유독 민감하다면 시스템 제안 가치보다 높게, 반대로 "나는 통근 시간에 책을 읽거나 운전을 즐긴다"면 더 낮은 값을 입력하세요.</p>
         `;
         renderSectionResult('commute', totalValue, commentary, details);
     },
@@ -132,6 +142,8 @@ const qolCalculators = {
                 <p>리모델링 비용은 미래에 지출할 목돈으로, 이를 월세처럼 환산하여 현재 가치에 반영합니다.</p>
                 <p class='font-bold text-slate-700 mt-2'>계산 방식</p>
                 <p>입력하신 '예상 리모델링 총 비용'(${formatDisplayCurrency(renoCost, 'full')})을 향후 10년(120개월) 동안 매달 나눠내는 할부금처럼 계산하여 월 (-)가치로 반영합니다.</p>
+                <p class='font-bold text-slate-700 mt-2'>직접 수정 가이드</p>
+                <p class='text-sm'>"나는 인테리어 업계에 종사해서 아주 저렴하게 수리할 수 있다"면 마이너스(-) 값을 줄이거나, "오래된 집의 감성을 즐긴다"면 0에 가깝게 수정할 수 있습니다.</p>
             `;
         } else {
             value = QOL_DATA.housing[type] || 0;
@@ -141,6 +153,8 @@ const qolCalculators = {
                 <p>새 집의 가치는 '미래 비용 절감'과 '일상의 편리함'에서 나옵니다.</p>
                 <p class='font-bold text-slate-700 mt-2'>계산 방식</p>
                 <p>향후 10년간 발생할 수 있는 수리 비용을 아끼고, 최신 시설(커뮤니티, 시스템 등)을 이용하며 얻는 편리함을 종합하여 월 (+)가치로 환산했습니다.</p>
+                <p class='font-bold text-slate-700 mt-2'>직접 수정 가이드</p>
+                <p class='text-sm'>"나는 벌레나 소음에 극도로 민감해서 무조건 새 집이어야 한다" 와 같이 새 집이 주는 안정감에 큰 가치를 둔다면 더 높게 설정하세요.</p>
             `;
         }
         renderSectionResult('housing', value, commentary, details);
@@ -155,6 +169,8 @@ const qolCalculators = {
             <p>집 주변 인프라는 나의 '시간'과 '돈'을 직접적으로 아껴주는 자산입니다.</p>
             <p class='font-bold text-slate-700 mt-2'>계산 방식</p>
             <p>마트, 지하철역 등이 가까워 아낄 수 있는 교통비와 시간을 월 단위로 환산하고, '슬세권'의 편리함, 병원/공원의 안정감 등을 종합하여 가치로 계산합니다.<br>(최대 ${formatDisplayCurrency(QOL_DATA.infra.max_value, 'full')}까지 반영)</p>
+            <p class='font-bold text-slate-700 mt-2'>직접 수정 가이드</p>
+            <p class='text-sm'>"나는 자차가 없어 대중교통 의존도가 절대적이다" 등 특정 인프라의 중요도가 남들보다 높다면 더 높은 가치를 부여하세요.</p>
         `;
         renderSectionResult('infra', value, commentary, details);
     },
@@ -174,6 +190,8 @@ const qolCalculators = {
             - 조망: ${formatDisplayCurrency(baseViewValue, 'full')}<br>
             - 개방감: ${formatDisplayCurrency(opennessValue, 'full')}<br>
             - 기타(${checkedAmenities.length}개): ${formatDisplayCurrency(amenityValue, 'full')}</p>
+            <p class='font-bold text-slate-700 mt-2'>직접 수정 가이드</p>
+            <p class='text-sm'>"나는 재택근무를 해서 집에 머무는 시간이 길다" 또는 "뷰가 좋으면 우울감이 해소될 정도로 풍경을 중요하게 생각한다"면 가치를 과감하게 높여보세요.</p>
         `;
         renderSectionResult('view', value, commentary, details);
     },
@@ -190,6 +208,8 @@ const qolCalculators = {
                 <p class='font-bold text-slate-700 mt-2'>계산 방식</p>
                 <p>선택하신 항목(${checkedItems.join(', ')})의 가치를 합산하여 반영합니다.<br>
                 합계: ${formatDisplayCurrency(value, 'full')}</p>
+                 <p class='font-bold text-slate-700 mt-2'>직접 수정 가이드</p>
+                <p class='text-sm'>"나는 사교육보다 공교육을 신뢰한다"면 가치를 낮추거나, "이 목록에는 없지만, 우리 아이에게 꼭 필요한 학원이 근처에 있다"면 가치를 더 높게 수정할 수 있습니다.</p>
             `;
         }
         
@@ -198,7 +218,6 @@ const qolCalculators = {
         else if (stage === '자녀 계획중') commentary = '향후 자녀 계획이 있다면, 이 지역의 교육 환경이 미래의 장점이 될 수 있습니다. 현재 가치 평가는 0원입니다.';
         else commentary = `자녀의 '${stage}' 단계를 고려하여 교육 시설 접근성을 평가합니다.`;
 
-        // ★★★ 수정: 잘못된 이름 'qolEdu'를 올바른 이름 'education'으로 수정 ★★★
         renderSectionResult('education', value, commentary, details);
     }
 };
@@ -209,8 +228,11 @@ function calculateSingleCommute(personIndex) {
     const type = document.getElementById(`qol-commute-type${personIndex}`).value;
     const income = appState.inputs[`annualIncome${personIndex}`];
 
-    if (time === 0) return { value: 0, commentary: '통근이 발생하지 않습니다.' };
+    if (time === 0) {
+        return { value: 0, commentary: '통근이 발생하지 않습니다.', details: '0원' };
+    }
     
+    // 시간 가치 계산
     const hourlyWage = income / 2086;
     const commuteHourlyValue = hourlyWage * QOL_DATA.commute.timeValueRatio;
     let weightedTime = 0, remainingTime = time, lastLimit = 0;
@@ -233,12 +255,24 @@ function calculateSingleCommute(personIndex) {
     }
     const monthlyTimeDiff = (baseWeightedTime - weightedTime) * 2 * QOL_DATA.commute.workDays;
     let monthlyTimeValue = (monthlyTimeDiff / 60) * commuteHourlyValue;
+    
     let commentary = `편도 ${time}분, 월 교통비 ${formatDisplayCurrency(cost, 'full')} 기준.`;
     if (type === 'walk') {
         monthlyTimeValue *= QOL_DATA.commute.walkPremium;
         commentary = `도보 ${time}분 기준. 쾌적함과 건강 증진 효과를 고려하여 가치를 높게 평가합니다.`;
     }
-    return { value: monthlyTimeValue - cost, commentary };
+
+    // ★★★ 수정: 교통비 가치 계산 로직 추가 ★★★
+    const costValue = QOL_DATA.commute.baseCost - cost;
+    const finalValue = monthlyTimeValue + costValue;
+
+    const details = `
+        <span class='text-blue-600'>(시간 가치 ${formatDisplayCurrency(monthlyTimeValue, 'full')})</span> + 
+        <span class='text-green-600'>(교통비 절감 ${formatDisplayCurrency(costValue, 'full')})</span>
+        = ${formatDisplayCurrency(finalValue, 'full')}
+    `;
+
+    return { value: finalValue, commentary, details };
 }
 
 
@@ -249,7 +283,6 @@ function renderSectionResult(key, value, commentary, details) {
     systemValues[key] = value;
     const finalValue = userOverrides[key] !== undefined ? userOverrides[key] : value;
     
-    // ★★★ 수정: 키 이름으로 직접 HTML 요소를 찾도록 수정 ★★★
     const resultBox = elements[`${key}Result`];
     const commentaryBox = elements[`${key}Commentary`];
     
