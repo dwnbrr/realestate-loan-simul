@@ -33,9 +33,9 @@ const QOL_DATA = {
         }
     },
     view: {
-        types: { '막힘': -70000, '도심': 30000, '단지 내': 15000, '트인 뷰': 60000, '공원/산': 80000, '갑천 등 국가하천': 150000 },
-        openness: { '답답함': -40000, '일부 막힘': -15000, '좋음': 40000, '파노라마': 70000 },
-        amenities: { '남향/채광우수': 30000, '넓은 동간거리': 15000 }
+        types: { '막힘': -50000, '도심': 20000, '단지 내': 40000, '트인 뷰': 60000, '공원/산': 80000, '갑천 등 국가하천': 150000 },
+        openness: { '답답함': -20000, '일부 막힘': -5000, '좋음': 20000, '파노라마': 50000 },
+        amenities: { '남향/채광우수': 30000, '넓은 동간거리': 20000 }
     },
     education: {
         stages: { '해당 없음': 0, '자녀 계획중': 0, '영유아': 0, '초등학생': 0, '중/고등학생': 0 },
@@ -52,7 +52,7 @@ const QOL_DATA = {
 
 let userOverrides = {};
 let systemValues = {};
-
+let infraPopupShown = false; // 인프라 팝업 표시 여부 플래그
 
 // =================================================================
 // 2. 초기화 및 이벤트 리스너 설정
@@ -82,6 +82,14 @@ function setupEventListeners() {
         const sectionElement = event.target.closest('.qol-section');
         if (!sectionElement) return;
 
+        const sectionKey = sectionElement.dataset.section;
+
+        // [수정] 생활 인프라 섹션을 처음 클릭할 때 안내 팝업 표시
+        if (sectionKey === 'infra' && !infraPopupShown) {
+            alert("[안내] 생활 인프라 선택 기준\n\n단순히 주변에 있는 시설이 아니라, 내가 '실제로 자주 사용'하여 시간과 비용을 절약하고 만족감을 얻는 시설만 선택해주세요.");
+            infraPopupShown = true;
+        }
+
         if (event.target.id === 'qol-housing-type') {
             const isOld = event.target.value === 'old';
             elements.renoCost.parentElement.classList.toggle('hidden', !isOld);
@@ -90,12 +98,12 @@ function setupEventListeners() {
             updateEduChecklistVisibility();
         }
 
-        const sectionKey = sectionElement.dataset.section;
         if (sectionKey && qolCalculators[sectionKey] && userOverrides[sectionKey] === undefined) {
             qolCalculators[sectionKey]();
         }
     };
     
+    qolPage.addEventListener('click', handleInteraction, { once: true, capture: true }); // capture를 이용해 details 열기 전에 이벤트 감지
     qolPage.addEventListener('change', handleInteraction);
     qolPage.addEventListener('input', handleInteraction);
 }
@@ -133,11 +141,11 @@ const qolCalculators = {
             <ul class="text-xs space-y-1 mt-2">
                 <li><b>시간 가치</b>: 충청권 평균 통근시간(<b>32.6분</b>)의 가치와 나의 통근시간 가치를 비교하여, 그 차액을 산출합니다. 시간이 절약되면 <b>+</b>가치, 더 소요되면 <b>-</b>가치가 됩니다.
                     <ul class="list-disc list-inside pl-2 text-slate-500">
-                        <li><b>피로도 가중치</b>: 통근 시간을 구간별로 나누어 각기 다른 가중치를 적용하고 합산합니다. (예: 50분 = 30분*0.7 + 15분*1.0 + 5분*1.2)</li>
-                        <li>~ 30분: <b>70%</b>, 30~45분: <b>100%</b>, 45~60분: <b>120%</b>, 60분 초과: <b>150%</b></li>
+                        <li><b>피로도 가중치</b>: 통근 시간을 구간별로 나누어 각기 다른 가중치를 적용하고 합산합니다.</li>
+                        <li>~30분(70%), 30-35분(80%), 35-40분(85%), 40-45분(90%), 45-50분(95%), 50-60분(100%), 60분 초과(110%)</li>
                     </ul>
                 </li>
-                <li><b>비용 가치</b>: 대전 평균 자차 연료비(<b>월 73,000원</b>)와 나의 실제 연료비를 비교하여, 그 차액을 산출합니다. 연료비가 절약되면 <b>+</b>가치, 더 소요되면 <b>-</b>가치가 됩니다.</li>
+                <li><b>비용 가치</b>: 대전 평균 자차 연료비(<b>월 73,000원</b>)와 나의 실제 연료비를 비교하여, 그 차액을 산출합니다.</li>
                 <li><b>출처</b>: <a href="https://kostat.go.kr/board.es?mid=a10301010000&bid=246&list_no=434303&act=view" target="_blank" class="text-indigo-600 hover:underline">통계청 '2024년 통근 근로자 이동 특성 분석'</a>, <a href="https://www.opinet.co.kr/user/dopospdrg/dopOsPdrgSelect.do" target="_blank" class="text-indigo-600 hover:underline">한국석유공사 Opinet</a></li>
             </ul>
         `;
@@ -192,11 +200,11 @@ const qolCalculators = {
         const value = Math.min(rawSum, QOL_DATA.infra.max_value);
         const commentary = checkedItems.length > 0 ? `선택하신 ${checkedItems.length}개 인프라는 시간 절약과 편의성 측면에서 높은 가치를 제공합니다.` : '주요 인프라가 부족할 경우, 생활 편의성이 다소 낮아 시간/비용 소모가 발생할 수 있습니다.';
         const details = `
-            <p class='font-bold text-slate-700'>인프라 가치 산정 기준 (대전광역시)</p>
-            <p class="mt-1 text-xs">대전의 도시 구조와 실제 아파트 가격에 영향을 미치는 핵심 인프라의 가중치를 재조정했습니다. 각 가치는 해당 인프라 접근성에 따른 실제 주택 가격 프리미엄을 월세 가치로 역산한 값입니다.</p>
+            <p class='font-bold text-slate-700'>인프라 가치 산정 기준</p>
+            <p class="mt-1 text-xs"><b>핵심 아이디어</b>: 주변 인프라의 가치는 그것이 제공하는 '시간 절약'과 '비용 절감'의 총합입니다. 각 가치는 해당 인프라 접근성으로 인해 발생하는 경제적 효용을 월 가치로 환산한 것입니다.</p>
             <ul class="text-xs space-y-1 mt-2">
-                <li><b>환승역 정보</b>: 대전 도시철도 2호선(트램)은 1호선과 <b>서대전네거리역, 대동역, 정부청사역, 유성온천역, 대전역</b>에서 환승이 계획되어 있습니다.</li>
-                <li><b>참고 자료</b>: <a href="https://realty.daum.net/home/apt/danjis/366" target="_blank" class="text-indigo-600 hover:underline">다음 부동산 - 대전 지역 단지별 시세 정보</a></li>
+                <li><b>참고 자료</b>: <b>주택산업연구원</b>의 "주택 성능과 주거 서비스가 주택 가격에 미치는 영향" 연구에 따르면, 커뮤니티, 상업시설, 교통 편의성 등 주거 서비스 수준이 주택 가격에 유의미한 정(+)의 영향을 미치는 것으로 분석되었습니다. 본 시뮬레이터는 해당 연구 방법론을 참고하여 각 인프라의 경제적 가치를 추정합니다.</li>
+                <li><b>보고서 확인</b>: 주택산업연구원(www.k-hi.org) 홈페이지 '연구자료'에서 위 보고서 제목으로 검색하여 원문을 확인하실 수 있습니다.</li>
             </ul>
         `;
         renderSectionResult('infra', value, commentary, details);
@@ -253,7 +261,7 @@ const qolCalculators = {
 };
 
 /**
- * [수정된 함수] 구간별 가중치를 누적 합산하는 방식으로 계산 엔진을 전면 수정
+ * [수정된 함수] 요청하신 세분화된 구간별 가중치 누적 합산 로직을 완벽하게 반영
  * @param {number} personIndex - 통근자 인덱스 (1 또는 2)
  * @returns {object} { value, commentary }
  */
@@ -271,12 +279,11 @@ function calculateSingleCommute(personIndex) {
         return { value: 0, commentary: '통근이 발생하지 않습니다.' };
     }
     
-    // 1. 시급 계산 (법정 근로시간 기준)
     const hourlyWage = income / 2080;
     const perMinuteWage = hourlyWage / 60;
 
     /**
-     * [신규 로직] 통근 시간을 구간별로 나누어 가중치를 적용한 '가중 분(weighted minutes)'을 계산
+     * [신규 로직] 통근 시간을 7단계로 세분화하여 가중치를 적용한 '가중 분(weighted minutes)'을 계산
      * @param {number} totalMinutes - 총 편도 통근 시간
      * @returns {number} 피로도 가중치가 적용된 총 분
      */
@@ -284,47 +291,30 @@ function calculateSingleCommute(personIndex) {
         let weightedMinutes = 0;
         let remainingMinutes = totalMinutes;
 
-        // 60분 초과 구간 (가중치 1.5)
-        if (remainingMinutes > 60) {
-            weightedMinutes += (remainingMinutes - 60) * 1.5;
-            remainingMinutes = 60;
-        }
-        // 45분 초과 ~ 60분 구간 (가중치 1.2)
-        if (remainingMinutes > 45) {
-            weightedMinutes += (remainingMinutes - 45) * 1.2;
-            remainingMinutes = 45;
-        }
-        // 30분 초과 ~ 45분 구간 (가중치 1.0)
-        if (remainingMinutes > 30) {
-            weightedMinutes += (remainingMinutes - 30) * 1.0;
-            remainingMinutes = 30;
-        }
-        // 0 ~ 30분 구간 (가중치 0.7)
-        if (remainingMinutes > 0) {
-            weightedMinutes += remainingMinutes * 0.7;
-        }
+        if (remainingMinutes > 60) { weightedMinutes += (remainingMinutes - 60) * 1.1; remainingMinutes = 60; }
+        if (remainingMinutes > 50) { weightedMinutes += (remainingMinutes - 50) * 1.0; remainingMinutes = 50; }
+        if (remainingMinutes > 45) { weightedMinutes += (remainingMinutes - 45) * 0.95; remainingMinutes = 45; }
+        if (remainingMinutes > 40) { weightedMinutes += (remainingMinutes - 40) * 0.90; remainingMinutes = 40; }
+        if (remainingMinutes > 35) { weightedMinutes += (remainingMinutes - 35) * 0.85; remainingMinutes = 35; }
+        if (remainingMinutes > 30) { weightedMinutes += (remainingMinutes - 30) * 0.80; remainingMinutes = 30; }
+        if (remainingMinutes > 0)  { weightedMinutes += remainingMinutes * 0.7; }
+        
         return weightedMinutes;
     };
 
-    // 2. 시간 가치 계산
     const baseWeightedMinutes = getTieredWeightedMinutes(QOL_DATA.commute.baseTime);
     const currentWeightedMinutes = getTieredWeightedMinutes(time);
     
     const diffWeightedMinutes = baseWeightedMinutes - currentWeightedMinutes;
-
     const timeValue = diffWeightedMinutes * perMinuteWage * 2 * QOL_DATA.commute.workDays;
 
-    // 3. 비용 가치 계산
     const costValue = QOL_DATA.commute.baseCarCost - cost;
-
-    // 4. 최종 가치 합산
     const finalValue = timeValue + costValue;
 
     const commentary = `시간 절약 가치: ${formatDisplayCurrency(timeValue, 'full')}, 비용 절약 가치: ${formatDisplayCurrency(costValue, 'full')}`;
     
     return { value: finalValue, commentary };
 }
-
 
 
 // =================================================================
