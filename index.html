@@ -1,287 +1,455 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>라이프 시뮬레이터 | 주택 구매 종합분석</title>
+import { elements } from './dom.js';
+import { appState } from './state.js';
+import { formatDisplayCurrency } from '../utils.js';
+import { calculateNetIncomeData, getTaxFromBase } from './calculations.js';
+
+// =================================================================
+// 1. 데이터 및 설정값 (대전광역시 기준 최종 조정)
+// =================================================================
+const QOL_DATA = {
+    commute: {
+        baseTime: 32.6, // 충청권 평균 통근시간 (2024 통계청)
+        baseCarCost: 73000, // 자차 기준 월 평균 연료비
+        workDays: 20,
+    },
+    housing: {
+        new: 300000,
+        renovated: 150000,
+        remodelPeriod: 120,
+    },
+    infra: {
+        max_value: 400000,
+        items: {
+            '대중교통(단일노선)': 60000,
+            '대중교통(환승역)': 120000,
+            '대형쇼핑몰(백화점/아울렛)': 60000,
+            '대형마트': 40000,
+            '슬세권(편의점/카페)': 30000,
+            '종합병원(상급)': 50000,
+            '관공서/은행': 10000,
+            '대규모 공원(녹지)': 70000,
+            '문화시설(영화관/공연장)': 20000,
+            '체육시설': 15000,
+        }
+    },
+    view: {
+        types: { '막힘': -50000, '도심': 20000, '단지 내': 40000, '트인 뷰': 60000, '공원/산': 80000, '갑천 등 국가하천': 150000 },
+        openness: { '답답함': -20000, '일부 막힘': -5000, '좋음': 20000, '파노라마': 50000 },
+        amenities: { '남향/채광우수': 30000, '넓은 동간거리': 20000 }
+    },
+    education: {
+        stages: { '해당 없음': 0, '자녀 계획중': 0, '영유아': 0, '초등학생': 0, '중/고등학생': 0 },
+        checklists: {
+            '영유아': { '도보 5분 내 국공립 어린이집/유치원': 100000 },
+            '초등학생': { '초품아 또는 안전한 도보 통학로': 180000 },
+            '중/고등학생': {
+                '우수 학원가 차량 15분 내 접근': 250000,
+                '둔산동 학원가 도보 10분 내 접근': 400000
+            }
+        }
+    }
+};
+
+let userOverrides = {};
+let systemValues = {};
+let infraPopupShown = false; // 인프라 팝업 표시 여부 플래그
+
+// =================================================================
+// 2. 초기화 및 이벤트 리스너 설정
+// =================================================================
+export function initializeQoLPage() {
+    userOverrides = {};
+    setupEventListeners();
+    populateUI();
+    elements.commuteP2Div.classList.toggle('hidden', appState.inputs.borrowerCount !== 2);
+    Object.keys(qolCalculators).forEach(key => qolCalculators[key]());
+}
+
+function populateUI() {
+    elements.viewType.innerHTML = Object.keys(QOL_DATA.view.types).map(key => `<option value="${key}">${key}</option>`).join('');
+    elements.viewOpenness.innerHTML = Object.keys(QOL_DATA.view.openness).map(key => `<option value="${key}">${key}</option>`).join('');
+    elements.eduStage.innerHTML = Object.keys(QOL_DATA.education.stages).map(key => `<option value="${key}">${key}</option>`).join('');
+    elements.infraChecklist.innerHTML = Object.keys(QOL_DATA.infra.items).map(key => createCheckboxHTML('infra-items', key, key)).join('');
+    elements.amenityChecklist.innerHTML = Object.keys(QOL_DATA.view.amenities).map(key => createCheckboxHTML('amenity-items', key, key)).join('');
+    updateEduChecklistVisibility();
+}
+
+function setupEventListeners() {
+    const qolPage = document.getElementById('qol-analysis-page');
+    if (!qolPage) return;
+
+    const handleInteraction = (event) => {
+        const sectionElement = event.target.closest('.qol-section');
+        if (!sectionElement) return;
+
+        const sectionKey = sectionElement.dataset.section;
+
+        // [수정] 생활 인프라 섹션을 처음 클릭할 때 안내 팝업 표시
+        if (sectionKey === 'infra' && !infraPopupShown) {
+            alert("[안내] 생활 인프라 선택 기준\n\n단순히 주변에 있는 시설이 아니라, 내가 '실제로 자주 사용'하여 시간과 비용을 절약하고 만족감을 얻는 시설만 선택해주세요.");
+            infraPopupShown = true;
+        }
+
+        if (event.target.id === 'qol-housing-type') {
+            const isOld = event.target.value === 'old';
+            elements.renoCost.parentElement.classList.toggle('hidden', !isOld);
+        }
+        if (event.target.id === 'qol-edu-stage') {
+            updateEduChecklistVisibility();
+        }
+
+        if (sectionKey && qolCalculators[sectionKey] && userOverrides[sectionKey] === undefined) {
+            qolCalculators[sectionKey]();
+        }
+    };
     
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.min.css">
+    qolPage.addEventListener('click', handleInteraction, { once: true, capture: true }); // capture를 이용해 details 열기 전에 이벤트 감지
+    qolPage.addEventListener('change', handleInteraction);
+    qolPage.addEventListener('input', handleInteraction);
+}
+
+function createCheckboxHTML(name, value, label) {
+    return `<label class="checklist-label"><input type="checkbox" name="${name}" value="${value}" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-offset-0 focus:ring-indigo-200 focus:ring-opacity-50"><span>${label}</span></label>`;
+}
+
+function updateEduChecklistVisibility() {
+    const stage = elements.eduStage.value;
+    const checklistData = QOL_DATA.education.checklists[stage];
     
-    <link rel="stylesheet" href="css/style.css?v=1.1">
-</head>
-<body class="bg-slate-100">
+    if (checklistData) {
+        elements.eduChecklist.innerHTML = Object.keys(checklistData).map(key => createCheckboxHTML('edu-items', key, key)).join('');
+        elements.eduChecklistArea.classList.remove('hidden');
+    } else {
+        elements.eduChecklistArea.classList.add('hidden');
+        elements.eduChecklist.innerHTML = '';
+    }
+}
 
-    <header class="bg-white shadow-md sticky top-0 z-10">
-        <nav class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex items-center justify-between h-16">
-                <span class="text-xl font-bold text-indigo-600">라이프 시뮬레이터</span>
-                <div class="flex space-x-1 sm:space-x-4">
-                    <button id="nav-financial" class="nav-button active">1. 재무</button>
-                    <button id="nav-qol" class="nav-button">2. 삶의 질</button>
-                    <button id="nav-final" class="nav-button">3. 최종 분석</button>
+
+// =================================================================
+// 4. 가치 계산 함수들 (Calculators)
+// =================================================================
+const qolCalculators = {
+    commute: () => {
+        const p1 = calculateSingleCommute(1);
+        const p2 = appState.inputs.borrowerCount === 2 ? calculateSingleCommute(2) : { value: 0, commentary: '' };
+        const totalValue = p1.value + p2.value;
+        const commentary = `<p><strong>통근자 1:</strong> ${p1.commentary}</p>${p2.commentary ? `<p class="mt-2"><strong>통근자 2:</strong> ${p2.commentary}</p>` : ''}`;
+        const details = `
+            <p class='font-bold text-slate-700'>통근 가치 산정 상세 기준 (대전광역시)</p>
+            <p class="mt-1 text-xs"><b>핵심 아이디어</b>: 통근은 <b>'그림자 노동(Shadow Work)'</b>이라는 개념을 적용, 기준값 대비 나의 시간과 비용이 얼마나 절약되거나 소모되는지를 계산합니다.</p>
+            <ul class="text-xs space-y-1 mt-2">
+                <li><b>시간 가치</b>: 충청권 평균 통근시간(<b>32.6분</b>)의 가치와 나의 통근시간 가치를 비교하여, 그 차액을 산출합니다. 시간이 절약되면 <b>+</b>가치, 더 소요되면 <b>-</b>가치가 됩니다.
+                    <ul class="list-disc list-inside pl-2 text-slate-500">
+                        <li><b>피로도 가중치</b>: 통근 시간을 구간별로 나누어 각기 다른 가중치를 적용하고 합산합니다.</li>
+                        <li>~30분(70%), 30-35분(80%), 35-40분(85%), 40-45분(90%), 45-50분(95%), 50-60분(100%), 60분 초과(110%)</li>
+                    </ul>
+                </li>
+                <li><b>비용 가치</b>: 대전 평균 자차 연료비(<b>월 73,000원</b>)와 나의 실제 연료비를 비교하여, 그 차액을 산출합니다.</li>
+                <li><b>출처</b>: <a href="https://kostat.go.kr/board.es?mid=a10301010000&bid=246&list_no=434303&act=view" target="_blank" class="text-indigo-600 hover:underline">통계청 '2024년 통근 근로자 이동 특성 분석'</a>, <a href="https://www.opinet.co.kr/user/dopospdrg/dopOsPdrgSelect.do" target="_blank" class="text-indigo-600 hover:underline">한국석유공사 Opinet</a></li>
+            </ul>
+        `;
+        renderSectionResult('commute', totalValue, commentary, details);
+    },
+    housing: () => {
+        const type = elements.housingType.value;
+        let value, commentary = '', details = '';
+        if (type === 'old') {
+            const renoCost = (parseFloat(elements.renoCost.value) || 0) * 10000;
+            value = -renoCost / QOL_DATA.housing.remodelPeriod;
+            commentary = `리모델링이 필요한 주택은 입주 후 추가 비용이 발생합니다.`;
+            details = `
+                 <p class='font-bold text-slate-700'>주택 상태 가치 산정 기준 (대전광역시)</p>
+                 <p class="mt-1 text-xs">리모델링 비용을 향후 10년(평균 거주 기간 및 주요 설비 내구연한 고려)의 월 할부금 형태로 환산하여 비용(-)으로 처리합니다.</p>
+            `;
+        } else {
+            value = QOL_DATA.housing[type] || 0;
+            commentary = type === 'new' ? '신축 아파트는 향후 10년간 수리비 절감, 커뮤니티 시설 이용 등을 고려하여 높은 부가 가치를 가집니다.' : '리모델링 된 주택은 내부 거주 만족도는 높지만, 공용부 노후화 등 수리 가능성은 여전히 존재합니다.';
+            details = `
+                <p class='font-bold text-slate-700'>주택 상태 가치 산정 기준</p>
+                <p class="mt-1 text-xs"><b>핵심 아이디어</b>: 아파트의 가치는 물리적 요인 외에도 다양한 특성이 결합되어 결정된다는 <b>'헤도닉 가격 모형'</b>에 기반합니다. 신축 아파트의 높은 가치는 이러한 특성들의 총합을 월 가치로 환산한 것입니다.</p>
+                <ul class="text-xs space-y-1 mt-2">
+                    <li><b>주요 가치 구성 요소</b>:
+                        <ul class="list-disc list-inside pl-2 text-slate-500">
+                            <li><b>에너지 효율성</b>: 강화된 단열/차음 기준으로 인한 <b>냉난방비 및 관리비 절감 효과</b>.</li>
+                            <li><b>최신 평면 설계</b>: 4베이, 팬트리, 드레스룸 등 <b>공간 활용도 극대화</b>에 따른 주거 만족도 증가.</li>
+                            <li><b>고품질 커뮤니티</b>: 피트니스, 골프연습장, 라운지 등 <b>외부 시설 이용 비용 절감 및 시간 절약 효과</b>.</li>
+                            <li><b>낮은 유지보수 비용</b>: 입주 후 최소 10년간 주요 설비 교체나 수리 비용이 발생하지 않는 것에 대한 <b>미래 비용 절감 효과</b>.</li>
+                        </ul>
+                    </li>
+                    <li><b>참고 자료</b>: 주택산업연구원 '아파트 특성별 가격 결정 모형 연구' (1998) 보고서에서 제시된 아파트 가치 평가 방법론을 적용하여 산출했습니다.</li>
+                </ul>
+            `;
+        }
+        renderSectionResult('housing', value, commentary, details);
+    },
+    infra: () => {
+        const checkedItems = [...elements.infraChecklist.querySelectorAll('input:checked')].map(el => el.value);
+        let rawSum = checkedItems.reduce((sum, key) => {
+            if (key === '대중교통(환승역)' && checkedItems.includes('대중교통(단일노선)')) {
+                return sum;
+            }
+            return sum + QOL_DATA.infra.items[key];
+        }, 0);
+
+        if (checkedItems.includes('대중교통(환승역)')) {
+            rawSum -= QOL_DATA.infra.items['대중교통(단일노선)'];
+            rawSum += QOL_DATA.infra.items['대중교통(환승역)'];
+        }
+
+        const value = Math.min(rawSum, QOL_DATA.infra.max_value);
+        const commentary = checkedItems.length > 0 ? `선택하신 ${checkedItems.length}개 인프라는 시간 절약과 편의성 측면에서 높은 가치를 제공합니다.` : '주요 인프라가 부족할 경우, 생활 편의성이 다소 낮아 시간/비용 소모가 발생할 수 있습니다.';
+        const details = `
+            <p class='font-bold text-slate-700'>인프라 가치 산정 기준</p>
+            <p class="mt-1 text-xs"><b>핵심 아이디어</b>: 주변 인프라의 가치는 그것이 제공하는 '시간 절약'과 '비용 절감'의 총합입니다. 각 가치는 해당 인프라 접근성으로 인해 발생하는 경제적 효용을 월 가치로 환산한 것입니다.</p>
+            <ul class="text-xs space-y-1 mt-2">
+                <li><b>참고 자료</b>: <b>주택산업연구원</b>의 "주택 성능과 주거 서비스가 주택 가격에 미치는 영향" 연구에 따르면, 커뮤니티, 상업시설, 교통 편의성 등 주거 서비스 수준이 주택 가격에 유의미한 정(+)의 영향을 미치는 것으로 분석되었습니다. 본 시뮬레이터는 해당 연구 방법론을 참고하여 각 인프라의 경제적 가치를 추정합니다.</li>
+                <li><b>보고서 확인</b>: 주택산업연구원(www.k-hi.org) 홈페이지 '연구자료'에서 위 보고서 제목으로 검색하여 원문을 확인하실 수 있습니다.</li>
+            </ul>
+        `;
+        renderSectionResult('infra', value, commentary, details);
+    },
+    view: () => {
+        const baseViewValue = QOL_DATA.view.types[elements.viewType.value] || 0;
+        const opennessValue = QOL_DATA.view.openness[elements.viewOpenness.value] || 0;
+        const checkedAmenities = [...elements.amenityChecklist.querySelectorAll('input:checked')].map(el => el.value);
+        const amenityValue = checkedAmenities.reduce((sum, key) => sum + (QOL_DATA.view.amenities[key] || 0), 0);
+        const value = baseViewValue + opennessValue + amenityValue;
+        
+        const commentary = `매일 보는 풍경은 주거 만족도에 큰 영향을 줍니다.`;
+        const details = `
+            <p class='font-bold text-slate-700'>조망 가치 산정 기준</p>
+            <p class="mt-1 text-xs">쾌적한 조망은 정서적 안정감을 제공하며, 이는 실제 가격에 반영되는 중요한 자산입니다.</p>
+            <ul class="text-xs space-y-1 mt-2">
+                <li><b>강/호수 조망</b>: <b>갑천, 유등천 등 국가하천급의 영구 조망</b>에 한정하여 높은 가치를 부여합니다.</li>
+                <li><b>참고 자료</b>: KB부동산 '한강 조망권 아파트 가치 분석 리포트', 주택산업연구원 '주거 만족도 결정 요인 연구'</li>
+            </ul>
+        `;
+        renderSectionResult('view', value, commentary, details);
+    },
+    education: () => {
+        const stage = elements.eduStage.value;
+        const checkedItems = [...elements.eduChecklist.querySelectorAll('input:checked')].map(el => el.value);
+        let value = 0;
+
+        if (QOL_DATA.education.checklists[stage] && checkedItems.length > 0) {
+            value = checkedItems.reduce((sum, key) => {
+                 if (key === '둔산동 학원가 도보 10분 내 접근' && checkedItems.includes('우수 학원가 차량 15분 내 접근')) {
+                    return sum;
+                 }
+                return sum + (QOL_DATA.education.checklists[stage][key] || 0);
+            }, 0);
+            if(checkedItems.includes('둔산동 학원가 도보 10분 내 접근')) {
+                 value -= QOL_DATA.education.checklists[stage]['우수 학원가 차량 15분 내 접근'];
+                 value += QOL_DATA.education.checklists[stage]['둔산동 학원가 도보 10분 내 접근'];
+            }
+        }
+        
+        const details = `
+            <p class='font-bold text-slate-700'>교육 가치 산정 기준 (대전광역시)</p>
+            <p class="mt-1 text-xs">대전은 다른 지역에 비해 <b>둔산동 학원가</b>의 위상이 절대적입니다. 해당 지역 내 아파트(크로바, 목련 등)와 비학군지 아파트의 가격 차이는 약 30~50%에 달하며, 이를 월 가치로 환산하여 반영했습니다.</p>
+            <p class="text-xs mt-2"><b>참고 자료</b>: <a href="http://buking.kr/rank.php?m=mm&si=대전&gu=서구&dong=둔산동" target="_blank" class="text-indigo-600 hover:underline">부킹 - 대전 서구 둔산동 아파트 매매가 랭킹</a></p>
+        `;
+        
+        let commentary = '';
+        if (stage === '해당 없음') commentary = '자녀 교육에 대한 고려가 없어, 이 항목의 가치는 0원으로 평가됩니다.';
+        else if (stage === '자녀 계획중') commentary = '향후 자녀 계획이 있다면, 이 지역의 교육 환경이 미래의 장점이 될 수 있습니다. 현재 가치 평가는 0원입니다.';
+        else commentary = `자녀의 '${stage}' 단계를 고려하여 교육 시설 접근성을 평가합니다.`;
+
+        renderSectionResult('education', value, commentary, details);
+    }
+};
+
+/**
+ * [수정된 함수] 요청하신 세분화된 구간별 가중치 누적 합산 로직을 완벽하게 반영
+ * @param {number} personIndex - 통근자 인덱스 (1 또는 2)
+ * @returns {object} { value, commentary }
+ */
+function calculateSingleCommute(personIndex) {
+    const timeInput = document.getElementById(`qol-commute-time${personIndex}`);
+    const costInput = document.getElementById(`qol-commute-cost${personIndex}`);
+
+    if (!timeInput || !costInput) return { value: 0, commentary: '' };
+
+    const time = parseFloat(timeInput.value) || 0;
+    const cost = parseFloat(costInput.value) || 0;
+    const income = appState.inputs[`annualIncome${personIndex}`];
+
+    if (time === 0 && cost === 0) {
+        return { value: 0, commentary: '통근이 발생하지 않습니다.' };
+    }
+    
+    const hourlyWage = income / 2080;
+    const perMinuteWage = hourlyWage / 60;
+
+    /**
+     * [신규 로직] 통근 시간을 7단계로 세분화하여 가중치를 적용한 '가중 분(weighted minutes)'을 계산
+     * @param {number} totalMinutes - 총 편도 통근 시간
+     * @returns {number} 피로도 가중치가 적용된 총 분
+     */
+    const getTieredWeightedMinutes = (totalMinutes) => {
+        let weightedMinutes = 0;
+        let remainingMinutes = totalMinutes;
+
+        if (remainingMinutes > 60) { weightedMinutes += (remainingMinutes - 60) * 1.1; remainingMinutes = 60; }
+        if (remainingMinutes > 50) { weightedMinutes += (remainingMinutes - 50) * 1.0; remainingMinutes = 50; }
+        if (remainingMinutes > 45) { weightedMinutes += (remainingMinutes - 45) * 0.95; remainingMinutes = 45; }
+        if (remainingMinutes > 40) { weightedMinutes += (remainingMinutes - 40) * 0.90; remainingMinutes = 40; }
+        if (remainingMinutes > 35) { weightedMinutes += (remainingMinutes - 35) * 0.85; remainingMinutes = 35; }
+        if (remainingMinutes > 30) { weightedMinutes += (remainingMinutes - 30) * 0.80; remainingMinutes = 30; }
+        if (remainingMinutes > 0)  { weightedMinutes += remainingMinutes * 0.7; }
+        
+        return weightedMinutes;
+    };
+
+    const baseWeightedMinutes = getTieredWeightedMinutes(QOL_DATA.commute.baseTime);
+    const currentWeightedMinutes = getTieredWeightedMinutes(time);
+    
+    const diffWeightedMinutes = baseWeightedMinutes - currentWeightedMinutes;
+    const timeValue = diffWeightedMinutes * perMinuteWage * 2 * QOL_DATA.commute.workDays;
+
+    const costValue = QOL_DATA.commute.baseCarCost - cost;
+    const finalValue = timeValue + costValue;
+
+    const commentary = `시간 절약 가치: ${formatDisplayCurrency(timeValue, 'full')}, 비용 절약 가치: ${formatDisplayCurrency(costValue, 'full')}`;
+    
+    return { value: finalValue, commentary };
+}
+
+
+// =================================================================
+// 5. 렌더링 및 최종 분석 함수들
+// =================================================================
+function renderSectionResult(key, value, commentary, details) {
+    systemValues[key] = value;
+    const finalValue = userOverrides[key] !== undefined ? userOverrides[key] : value;
+    
+    const resultBox = elements[`${key}Result`];
+    const commentaryBox = elements[`${key}Commentary`];
+    
+    if (commentaryBox) commentaryBox.innerHTML = commentary;
+    
+    const formattedValue = formatDisplayCurrency(finalValue, 'full');
+    const valueClass = finalValue >= 0 ? 'positive' : 'negative';
+    const isOverridden = userOverrides[key] !== undefined;
+
+    if (resultBox) {
+        resultBox.innerHTML = `
+            <div class="flex-grow">
+                <div class="flex items-center gap-2">
+                    <span class="label">월 예상 가치</span>
+                    ${isOverridden ? '<span class="text-xs text-amber-600 font-bold">[수동입력]</span>' : ''}
+                </div>
+                <span class="value ${valueClass}">${finalValue >= 0 ? '+' : ''}${formattedValue}</span>
+                <div class="mt-2">
+                    <button class="details-toggle text-xs text-indigo-600 font-semibold">[자세히 보기]</button>
+                </div>
+                <div class="details-content hidden mt-2 p-3 bg-white rounded-md border text-sm">
+                    ${details}
                 </div>
             </div>
-        </nav>
-    </header>
-
-    <main id="main-content" class="p-4 sm:p-6 lg:p-8">
-        <div class="max-w-screen-2xl mx-auto">
-            <div id="financial-input-page" class="page-content active">
-                <div class="text-center mb-10">
-                    <h1 class="page-title">주택 구매 종합분석</h1>
-                    <p class="page-subtitle">1단계: 재무 상황을 입력하여 구매 가능성을 확인해보세요.</p>
-                </div>
-                
-                <div class="max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                    <div class="card md:col-span-2">
-                        <h2 class="section-title">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                            [1] 소득 정보
-                        </h2>
-                        <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-                            <div>
-                                <label for="borrowerCount" class="input-label">상환 인원</label>
-                                <select id="borrowerCount" class="input-field w-full rounded-md border p-2 mt-1">
-                                    <option value="1" selected>1인 (단독 명의)</option>
-                                    <option value="2">2인 (공동 명의)</option>
-                                </select>
-                            </div>
-                            <div></div>
-                            <div class="sm:col-span-1">
-                                <label for="annualIncome1" class="input-label">1인 세전 연봉 (만원)</label>
-                                <input type="number" id="annualIncome1" class="input-field w-full rounded-md border p-2 mt-1" placeholder="7000">
-                            </div>
-                            <div class="sm:col-span-1">
-                                 <label for="remainingYears1" class="input-label">1인 남은 정년 (년)</label>
-                                <input type="number" id="remainingYears1" class="input-field w-full rounded-md border p-2 mt-1" placeholder="30">
-                            </div>
-                            <div id="income2-section" class="hidden sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 border-t pt-4 mt-2">
-                               <div>
-                                    <label for="annualIncome2" class="input-label">2인 세전 연봉 (만원)</label>
-                                    <input type="number" id="annualIncome2" class="input-field w-full rounded-md border p-2 mt-1" placeholder="5000">
-                               </div>
-                               <div>
-                                    <label for="remainingYears2" class="input-label">2인 남은 정년 (년)</label>
-                                    <input type="number" id="remainingYears2" class="input-field w-full rounded-md border p-2 mt-1" placeholder="30">
-                               </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card">
-                         <h2 class="section-title">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
-                            [2] 주택 및 지출
-                        </h2>
-                        <div class="mt-6 space-y-4">
-                            <div>
-                                <label for="housePrice" class="input-label">주택 가격 (만원)</label>
-                                <input type="number" id="housePrice" class="input-field w-full rounded-md border p-2 mt-1" placeholder="50000">
-                            </div>
-                            <div>
-                                <label for="cash" class="input-label">보유 현금 (만원)</label>
-                                <input type="number" id="cash" class="input-field w-full rounded-md border p-2 mt-1" placeholder="10000">
-                            </div>
-                            <div>
-                                <label for="livingCost" class="input-label">월 필수 소비액 (만원)</label>
-                                <input type="number" id="livingCost" class="input-field w-full rounded-md border p-2 mt-1" placeholder="250">
-                                <details class="input-tip-details">
-                                    <summary>💡 생활비 가이드라인</summary>
-                                    <div class="tip-content">1인 150만원, 2인 250만원, 3인 320만원, 4인 400만원이 일반적인 기준입니다.</div>
-                                </details>
-                            </div>
-                             <div>
-                                <label for="managementCost" class="input-label">월 관리비/유지비 (만원)</label>
-                                <input type="number" id="managementCost" class="input-field w-full rounded-md border p-2 mt-1" placeholder="24">
-                                <details class="input-tip-details">
-                                    <summary>💡 월 관리비 가이드라인</summary>
-                                    <div class="tip-content">2025년 5월 기준 대전광역시의 ㎡당 공동주택 평균 공용관리비는 1,391원입니다. 34평(84㎡) 기준 약 11.7만원이며, 여기에 개별사용료(전기, 난방 등)를 더하면 평균 24만원 내외가 됩니다. (<a href="https://www.k-apt.go.kr/apiinfo/goApiInfoBySido.do" target="_blank" class="text-indigo-600 hover:underline">출처: K-apt</a>)</div>
-                                </details>
-                            </div>
-                            <div>
-                                <label for="otherLoanPayment" class="input-label">기타 대출 월상환액 (만원)</label>
-                                <input type="number" id="otherLoanPayment" class="input-field w-full rounded-md border p-2 mt-1" placeholder="0">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <h2 class="section-title">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-                            [3] 대출 및 미래 예측
-                        </h2>
-                        <div class="mt-6 space-y-4">
-                            <div>
-                                <label for="interestRate" class="input-label">예상 대출 금리 (%)</label>
-                                <input type="number" id="interestRate" class="input-field w-full rounded-md border p-2 mt-1" step="0.1" placeholder="4.0">
-                                <details class="input-tip-details">
-                                    <summary>💡 대출 금리 가이드라인</summary>
-                                    <div class="tip-content">주택담보대출은 보통 기준금리 + 가산금리로 결정됩니다. 현재 기준(24년) 3.5~4.5% 수준입니다.</div>
-                                </details>
-                            </div>
-                            <div>
-                                <label for="loanTerm" class="input-label">대출 기간 (년)</label>
-                                <input type="number" id="loanTerm" class="input-field w-full rounded-md border p-2 mt-1" placeholder="30">
-                            </div>
-                            <div>
-                                 <label for="realSalaryGrowthRate" class="input-label">실질 연봉상승률 (%)</label>
-                                <input type="number" id="realSalaryGrowthRate" class="input-field w-full rounded-md border p-2 mt-1" step="0.1" placeholder="2.0">
-                            </div>
-                            <div>
-                                <label for="inflationRate" class="input-label">연 물가상승률 (%)</label>
-                                <input type="number" id="inflationRate" class="input-field w-full rounded-md border p-2 mt-1" step="0.1" placeholder="2.5">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="mt-10 text-center">
-                    <button id="calculate-financials-button" class="w-full max-w-xs px-8 py-4 text-lg font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-lg">
-                        재무 분석 결과 보기
-                    </button>
-                </div>
+            <div class="flex-shrink-0">
+                <button class="edit-button" data-key="${key}" title="직접 평가하기">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-500 hover:text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L15.232 5.232z" /></svg>
+                </button>
             </div>
+        `;
+        resultBox.querySelector('.edit-button').addEventListener('click', (e) => {
+             e.stopPropagation();
+             handleEdit(key);
+        });
+        resultBox.querySelector('.details-toggle').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const content = resultBox.querySelector('.details-content');
+            content.classList.toggle('hidden');
+            e.target.textContent = content.classList.contains('hidden') ? '[자세히 보기]' : '[숨기기]';
+        });
+    }
+}
 
-            <div id="financial-results-page" class="page-content hidden">
-                <div class="flex flex-col sm:flex-row justify-between items-start mb-6 gap-4">
-                    <div>
-                        <h1 class="page-title">1단계: 재무 분석 결과</h1>
-                        <p class="page-subtitle">이 집을 구매할 금전적 여력이 있는지 확인합니다.</p>
-                    </div>
-                    <div class="flex gap-2 items-center">
-                        <button id="unitToggle" class="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors shadow-sm">단위 전환</button>
-                        <button id="exportData" class="px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors shadow-sm">데이터 내보내기</button>
-                    </div>
-                </div>
-                <div id="financial-results-content" class="space-y-6">
-                </div>
-                <div class="mt-10 text-center">
-                    <button id="go-to-qol-button" class="w-full max-w-md px-8 py-4 text-lg font-bold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-lg">
-                        2단계: 삶의 질 분석
-                    </button>
-                </div>
+function handleEdit(key) {
+    const currentValue = userOverrides[key] !== undefined ? userOverrides[key] : systemValues[key];
+    const userInput = prompt(`'${key}' 항목의 가치를 직접 입력하세요 (단위: 원).\n시스템 계산값: ${currentValue.toLocaleString('ko-KR')} 원\n\n취소하거나 빈 값으로 두면 시스템 계산값으로 복원됩니다.`, currentValue);
+
+    if (userInput === null) return;
+
+    if (userInput.trim() === '') {
+        delete userOverrides[key];
+    } else {
+        const numericValue = parseInt(userInput, 10);
+        if (!isNaN(numericValue)) {
+            userOverrides[key] = numericValue;
+        } else {
+            alert('유효한 숫자를 입력해주세요.');
+            return;
+        }
+    }
+    qolCalculators[key]();
+}
+
+export function calculateAllQoL() {
+    let totalValue = 0;
+    for (const key in systemValues) {
+        totalValue += userOverrides[key] !== undefined ? userOverrides[key] : systemValues[key];
+    }
+    return totalValue;
+}
+
+export function renderFinalAnalysis(state, totalQoLValue) {
+    const { inputs } = state;
+
+    const loanPrincipal = inputs.housePrice - inputs.cash;
+    const monthlyInterest = loanPrincipal * (inputs.interestRate / 12);
+    
+    let taxRefundOnInterest = 0;
+    if (monthlyInterest > 0) {
+        if (inputs.borrowerCount === 1) {
+            const { taxBase } = calculateNetIncomeData(inputs.annualIncome1);
+            const taxRate = taxBase > 0 ? getTaxFromBase(taxBase) / taxBase : 0.06;
+            taxRefundOnInterest = monthlyInterest * taxRate;
+        } else {
+            const interestPerPerson = monthlyInterest / 2;
+            const { taxBase: taxBase1 } = calculateNetIncomeData(inputs.annualIncome1);
+            const { taxBase: taxBase2 } = calculateNetIncomeData(inputs.annualIncome2);
+            const taxRate1 = taxBase1 > 0 ? getTaxFromBase(taxBase1) / taxBase1 : 0.06;
+            const taxRate2 = taxBase2 > 0 ? getTaxFromBase(taxBase2) / taxBase2 : 0.06;
+            taxRefundOnInterest = (interestPerPerson * taxRate1) + (interestPerPerson * taxRate2);
+        }
+    }
+    const effectiveMonthlyInterest = monthlyInterest - taxRefundOnInterest;
+
+    const perceivedMonthlyCost = effectiveMonthlyInterest - totalQoLValue;
+
+    const summaryHTML = `
+        <div class="card bg-slate-50 border border-slate-200">
+            <h2 class="section-title text-indigo-700">📊 최종 종합 분석</h2>
+            <div class="mt-4 text-center">
+                <p class="text-slate-600">이 집의 최종 '체감 월 주거비용'은 다음과 같습니다.</p>
+                <p class="text-4xl sm:text-5xl font-bold text-indigo-600 my-4">${formatDisplayCurrency(perceivedMonthlyCost, 'full')}</p>
+                 <p class="text-sm text-slate-500">(실효 월 이자 - '삶의 질' 가치)</p>
             </div>
-
-            <div id="qol-analysis-page" class="page-content hidden">
-                <div class="text-center mb-10">
-                    <h1 class="page-title">2단계: '삶의 질' 가치 분석</h1>
-                    <p class="page-subtitle">이 집이 당신의 삶에 주는 가치를 돈으로 환산해 보세요.</p>
-                </div>
-                
-                <div class="max-w-4xl mx-auto space-y-6">
-                    <details class="qol-section" data-section="commute" open>
-                        <summary>1. 🚶‍♂️ 통근 가치 분석</summary>
-                        <div class="section-content">
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                               <div id="qol-commute-p1">
-                                    <p class="input-title">통근자 1</p>
-                                    <div class="mb-1 text-xs text-slate-600">ⓘ 차량 이동 시간만 입력해주세요. (예: 내비게이션 앱에 표시되는 순수 주행 시간)</div>
-                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                        <select id="qol-commute-type1" class="input-field rounded-md"><option value="car" selected>자차</option><option value="public">대중교통</option><option value="walk">도보</option></select>
-                                        <input type="number" id="qol-commute-time1" class="input-field rounded-md" placeholder="편도 시간(분)">
-                                        <input type="number" id="qol-commute-cost1" class="input-field rounded-md" placeholder="월 교통비(원)">
-                                    </div>
-                               </div>
-                               <div id="qol-commute-p2" class="hidden">
-                                    <p class="input-title">통근자 2</p>
-                                     <div class="mb-1 text-xs text-slate-600">ⓘ 차량 이동 시간만 입력해주세요. (예: 내비게이션 앱에 표시되는 순수 주행 시간)</div>
-                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                        <select id="qol-commute-type2" class="input-field rounded-md"><option value="car" selected>자차</option><option value="public">대중교통</option><option value="walk">도보</option></select>
-                                        <input type="number" id="qol-commute-time2" class="input-field rounded-md" placeholder="편도 시간(분)">
-                                        <input type="number" id="qol-commute-cost2" class="input-field rounded-md" placeholder="월 교통비(원)">
-                                    </div>
-                               </div>
-                            </div>
-                            <div class="commentary-box" id="qol-commute-commentary"></div>
-                            <div class="result-box" id="qol-commute-result"></div>
-                        </div>
-                    </details>
-                    <details class="qol-section" data-section="housing">
-                        <summary>2. 🏠 주택 상태 및 편의성 가치</summary>
-                        <div class="section-content">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label class="input-title">주택 유형</label>
-                                    <select id="qol-housing-type" class="input-field w-full rounded-md mt-1">
-                                        <option value="new">신축 아파트 (준공 10년 이내)</option>
-                                        <option value="renovated">구축 (리모델링 완료)</option>
-                                        <option value="old">구축 (리모델링 필요)</option>
-                                    </select>
-                                </div>
-                                <div class="hidden">
-                                    <label class="input-title">예상 리모델링 총 비용(만원)</label>
-                                    <input type="number" id="qol-reno-cost" class="input-field w-full rounded-md mt-1" placeholder="8000">
-                                </div>
-                            </div>
-                            <div class="commentary-box" id="qol-housing-commentary"></div>
-                            <div class="result-box" id="qol-housing-result"></div>
-                        </div>
-                    </details>
-                    <details class="qol-section" data-section="infra">
-                        <summary>3. 🌳 생활 인프라 및 환경 가치</summary>
-                        <div class="section-content">
-                            <p class="input-title">도보 15분 내에 이용 가능한 시설을 모두 선택하세요.</p>
-                            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mt-2" id="qol-infra-checklist">
-                            </div>
-                            <div class="commentary-box" id="qol-infra-commentary"></div>
-                            <div class="result-box" id="qol-infra-result"></div>
-                        </div>
-                    </details>
-                     <details class="qol-section" data-section="view">
-                        <summary>4. 🏞️ 조망 및 환경 가치</summary>
-                        <div class="section-content">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label class="input-title">거실 기준 조망</label>
-                                    <select id="qol-view-type" class="input-field w-full rounded-md mt-1"></select>
-                                </div>
-                                 <div>
-                                    <label class="input-title">조망의 개방감</label>
-                                    <select id="qol-view-openness" class="input-field w-full rounded-md mt-1"></select>
-                                </div>
-                            </div>
-                             <div class="mt-4">
-                                 <label class="input-title">기타 환경</label>
-                                 <div class="flex flex-wrap gap-4 mt-2" id="qol-amenity-checklist"></div>
-                             </div>
-                            <div class="commentary-box" id="qol-view-commentary"></div>
-                            <div class="result-box" id="qol-view-result"></div>
-                        </div>
-                    </details>
-                    <details class="qol-section" data-section="education">
-                        <summary>5. 🎓 교육 가치</summary>
-                        <div class="section-content">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                               <div>
-                                    <label class="input-title">자녀 상황</label>
-                                    <select id="qol-edu-stage" class="input-field w-full rounded-md mt-1"></select>
-                               </div>
-                            </div>
-                            <div class="mt-4 hidden" id="qol-edu-checklist-area">
-                                <label class="input-title">주요 교육 시설 접근성</label>
-                                <div class="space-y-2 mt-2" id="qol-edu-checklist"></div>
-                            </div>
-                            <div class="commentary-box" id="qol-edu-commentary"></div>
-                            <div class="result-box" id="qol-edu-result"></div>
-                        </div>
-                    </details>
-                </div>
-                <div class="mt-10 text-center">
-                    <button id="go-to-final-analysis-button" class="w-full max-w-md px-8 py-4 text-lg font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-lg">
-                        3단계: 최종 분석 보기
-                    </button>
-                </div>
+            <table class="w-full mt-6 text-sm">
+                <tbody class="divide-y divide-slate-200">
+                    <tr class="py-2"><td class="py-2">1️⃣ 실효 월 이자 (세금혜택 반영)</td><td class="text-right font-semibold text-red-600">${formatDisplayCurrency(effectiveMonthlyInterest, 'full')}</td></tr>
+                    <tr class="py-2"><td class="py-2">2️⃣ '삶의 질' 부가 가치</td><td class="text-right font-semibold text-blue-600">- ${formatDisplayCurrency(totalQoLValue, 'full')}</td></tr>
+                </tbody>
+                <tfoot class="border-t-2 border-slate-300">
+                    <tr><td class="pt-2 font-bold">최종 체감 월 주거비용</td><td class="pt-2 text-right font-bold text-indigo-700 text-lg">${formatDisplayCurrency(perceivedMonthlyCost, 'full')}</td></tr>
+                </tfoot>
+            </table>
+            <div class="commentary-box mt-6 bg-white">
+                <p class="font-bold">💡 결론 코멘트</p>
+                <p class="mt-2">이 집을 소유함으로써 매달 부담해야 하는 <strong class="text-red-600">실질적인 이자 비용</strong>은 약 <strong>${formatDisplayCurrency(effectiveMonthlyInterest, 'manwon')}</strong>입니다.</p>
+                <p class="mt-2">하지만 이 집이 제공하는 통근, 환경, 인프라 등의 <strong class="text-blue-600">'삶의 질' 가치</strong>가 월 <strong>${formatDisplayCurrency(totalQoLValue, 'manwon')}</strong>만큼의 만족을 주어 이자 부담을 상쇄합니다.</p>
+                <p class="mt-4 font-bold">따라서, 당신이 느끼는 최종적인 '체감 월 주거비용'은 <strong class="text-indigo-700">${formatDisplayCurrency(perceivedMonthlyCost, 'manwon')}</strong>입니다.</p>
+                <p class="mt-2 text-sm text-slate-600">※ 이 값이 0에 가깝거나 마이너스(-)라면, 이자 부담을 넘어선 큰 만족감을 주는 매우 합리적인 선택임을 의미합니다.</p>
             </div>
-
-            <div id="final-analysis-page" class="page-content hidden">
-                <div class="text-center mb-10">
-                    <h1 class="page-title">3단계: 최종 종합 분석</h1>
-                    <p class="page-subtitle">재무상황과 삶의 질을 종합하여, 이 집의 최종 가치를 확인합니다.</p>
-                </div>
-                <div id="final-summary-content" class="max-w-3xl mx-auto">
-                </div>
+            <div class="mt-8 flex justify-center gap-4">
+                <button id="go-back-to-financial-button" class="px-6 py-3 text-base font-semibold text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors shadow-sm">1. 재무 수정</button>
+                <button id="go-back-to-qol-button" class="px-6 py-3 text-base font-semibold text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors shadow-sm">2. 삶의 질 수정</button>
             </div>
         </div>
-    </main>
-    
-    <script type="module" src="js/main.js?v=1.1"></script>
-</body>
-</html>
+    `;
+
+    elements.finalSummaryContent.innerHTML = summaryHTML;
+}
