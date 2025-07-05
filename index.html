@@ -92,7 +92,11 @@
                             </div>
                              <div>
                                 <label for="managementCost" class="input-label">월 관리비/유지비 (만원)</label>
-                                <input type="number" id="managementCost" class="input-field w-full rounded-md border p-2 mt-1" placeholder="30">
+                                <input type="number" id="managementCost" class="input-field w-full rounded-md border p-2 mt-1" placeholder="24">
+                                <details class="input-tip-details">
+                                    <summary>💡 월 관리비 가이드라인</summary>
+                                    <div class="tip-content">2025년 5월 기준 대전광역시의 ㎡당 공동주택 평균 공용관리비는 1,391원입니다. 34평(84㎡) 기준 약 11.7만원이며, 여기에 개별사용료(전기, 난방 등)를 더하면 평균 24만원 내외가 됩니다. (<a href="https://www.k-apt.go.kr/apiinfo/goApiInfoBySido.do" target="_blank" class="text-indigo-600 hover:underline">출처: K-apt</a>)</div>
+                                </details>
                             </div>
                             <div>
                                 <label for="otherLoanPayment" class="input-label">기타 대출 월상환액 (만원)</label>
@@ -169,6 +173,7 @@
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                                <div id="qol-commute-p1">
                                     <p class="input-title">통근자 1</p>
+                                    <div class="mb-1 text-xs text-slate-600">ⓘ 차량 이동 시간만 입력해주세요. (예: 내비게이션 앱에 표시되는 순수 주행 시간)</div>
                                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                         <select id="qol-commute-type1" class="input-field rounded-md"><option value="car" selected>자차</option><option value="public">대중교통</option><option value="walk">도보</option></select>
                                         <input type="number" id="qol-commute-time1" class="input-field rounded-md" placeholder="편도 시간(분)">
@@ -177,6 +182,7 @@
                                </div>
                                <div id="qol-commute-p2" class="hidden">
                                     <p class="input-title">통근자 2</p>
+                                     <div class="mb-1 text-xs text-slate-600">ⓘ 차량 이동 시간만 입력해주세요. (예: 내비게이션 앱에 표시되는 순수 주행 시간)</div>
                                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                         <select id="qol-commute-type2" class="input-field rounded-md"><option value="car" selected>자차</option><option value="public">대중교통</option><option value="walk">도보</option></select>
                                         <input type="number" id="qol-commute-time2" class="input-field rounded-md" placeholder="편도 시간(분)">

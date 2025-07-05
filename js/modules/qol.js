@@ -4,38 +4,48 @@ import { formatDisplayCurrency } from '../utils.js';
 import { calculateNetIncomeData, getTaxFromBase } from './calculations.js';
 
 // =================================================================
-// 1. 데이터 및 설정값
+// 1. 데이터 및 설정값 (대전광역시 기준 최종 조정)
 // =================================================================
 const QOL_DATA = {
     commute: {
-        baseTime: 33,
-        basePublicCost: 63000,
-        carData: {
-            avgDistanceKm: 31.6,
-            avgFuelEfficiency: 12,
-            avgGasPrice: 1650,
-        },
-        workDays: 21, 
-        timeValueRatio: 0.33, 
-        walkPremium: 1.2,
-        weights: [ { limit: 20, weight: 0.8 }, { limit: 30, weight: 1.0 }, { limit: 45, weight: 1.5 }, { limit: 60, weight: 2.2 }, { limit: Infinity, weight: 3.0 }, ],
+        baseTime: 32.6, // 충청권 평균 통근시간 (2024 통계청)
+        baseCarCost: 73000, // 자차 기준 월 평균 연료비
+        workDays: 20,
     },
-    housing: { new: 150000, renovated: 50000, remodelPeriod: 120, },
+    housing: {
+        new: 300000,
+        renovated: 150000,
+        remodelPeriod: 120,
+    },
     infra: {
-        max_value: 250000,
-        items: { '대중교통(지하철)': 80000, '대형쇼핑몰(백화점/아울렛)': 70000, '대형마트': 40000, '슬세권(편의점/카페)': 30000, '종합병원(상급)': 50000, '관공서/은행': 10000, '대규모 공원(녹지)': 60000, '수변공간(강/호수)': 50000, '문화시설(영화관/공연장)': 20000, '체육시설': 15000 }
+        max_value: 400000,
+        items: {
+            '대중교통(단일노선)': 60000,
+            '대중교통(환승역)': 120000,
+            '대형쇼핑몰(백화점/아울렛)': 60000,
+            '대형마트': 40000,
+            '슬세권(편의점/카페)': 30000,
+            '종합병원(상급)': 50000,
+            '관공서/은행': 10000,
+            '대규모 공원(녹지)': 70000,
+            '문화시설(영화관/공연장)': 20000,
+            '체육시설': 15000,
+        }
     },
     view: {
-        types: { '막힘': -50000, '도심': 20000, '단지 내': 40000, '트인 뷰': 60000, '공원/산': 80000, '강/호수': 150000 },
-        openness: { '답답함': -20000, '일부 막힘': -5000, '좋음': 20000, '파노라마': 50000 },
-        amenities: { '남향/채광우수': 30000, '넓은 동간거리': 20000 }
+        types: { '막힘': -70000, '도심': 30000, '단지 내': 15000, '트인 뷰': 60000, '공원/산': 80000, '갑천 등 국가하천': 150000 },
+        openness: { '답답함': -40000, '일부 막힘': -15000, '좋음': 40000, '파노라마': 70000 },
+        amenities: { '남향/채광우수': 30000, '넓은 동간거리': 15000 }
     },
     education: {
         stages: { '해당 없음': 0, '자녀 계획중': 0, '영유아': 0, '초등학생': 0, '중/고등학생': 0 },
         checklists: {
             '영유아': { '도보 5분 내 국공립 어린이집/유치원': 100000 },
             '초등학생': { '초품아 또는 안전한 도보 통학로': 180000 },
-            '중/고등학생': { '우수 학원가 차량 15분 내 접근': 350000 }
+            '중/고등학생': {
+                '우수 학원가 차량 15분 내 접근': 250000,
+                '둔산동 학원가 도보 10분 내 접근': 400000
+            }
         }
     }
 };
@@ -114,18 +124,22 @@ function updateEduChecklistVisibility() {
 const qolCalculators = {
     commute: () => {
         const p1 = calculateSingleCommute(1);
-        const p2 = appState.inputs.borrowerCount === 2 ? calculateSingleCommute(2) : { value: 0, commentary: '', details: '' };
+        const p2 = appState.inputs.borrowerCount === 2 ? calculateSingleCommute(2) : { value: 0, commentary: '' };
         const totalValue = p1.value + p2.value;
         const commentary = `<p><strong>통근자 1:</strong> ${p1.commentary}</p>${p2.commentary ? `<p class="mt-2"><strong>통근자 2:</strong> ${p2.commentary}</p>` : ''}`;
         const details = `
-            <p class='font-bold text-slate-700'>상세 계산식</p>
-            <div class='text-sm space-y-1 mt-1'>
-                <p><strong>통근자 1:</strong> ${p1.details}</p>
-                ${p2.details ? `<p><strong>통근자 2:</strong> ${p2.details}</p>`: ''}
-                <p class='border-t pt-1 mt-2'><strong>최종 가치 = </strong> 통근자 1 가치 + 통근자 2 가치</p>
-            </div>
-            <p class='font-bold text-slate-700 mt-3'>직접 수정 가이드</p>
-            <p class='text-sm'>"나는 원래 출퇴근에 극심한 스트레스를 받는다" 등 통근에 유독 민감하다면 시스템 제안 가치보다 높게, 반대로 "나는 통근 시간에 책을 읽거나 운전을 즐긴다"면 더 낮은 값을 입력하세요.</p>
+            <p class='font-bold text-slate-700'>통근 가치 산정 상세 기준 (대전광역시)</p>
+            <p class="mt-1 text-xs"><b>핵심 아이디어</b>: 통근은 <b>'그림자 노동(Shadow Work)'</b>이라는 개념을 적용, 기준값 대비 나의 시간과 비용이 얼마나 절약되거나 소모되는지를 계산합니다.</p>
+            <ul class="text-xs space-y-1 mt-2">
+                <li><b>시간 가치</b>: 충청권 평균 통근시간(<b>32.6분</b>)의 가치와 나의 통근시간 가치를 비교하여, 그 차액을 산출합니다. 시간이 절약되면 <b>+</b>가치, 더 소요되면 <b>-</b>가치가 됩니다.
+                    <ul class="list-disc list-inside pl-2 text-slate-500">
+                        <li><b>피로도 가중치</b>: 통근 시간을 구간별로 나누어 각기 다른 가중치를 적용하고 합산합니다. (예: 50분 = 30분*0.7 + 15분*1.0 + 5분*1.2)</li>
+                        <li>~ 30분: <b>70%</b>, 30~45분: <b>100%</b>, 45~60분: <b>120%</b>, 60분 초과: <b>150%</b></li>
+                    </ul>
+                </li>
+                <li><b>비용 가치</b>: 대전 평균 자차 연료비(<b>월 73,000원</b>)와 나의 실제 연료비를 비교하여, 그 차액을 산출합니다. 연료비가 절약되면 <b>+</b>가치, 더 소요되면 <b>-</b>가치가 됩니다.</li>
+                <li><b>출처</b>: <a href="https://kostat.go.kr/board.es?mid=a10301010000&bid=246&list_no=434303&act=view" target="_blank" class="text-indigo-600 hover:underline">통계청 '2024년 통근 근로자 이동 특성 분석'</a>, <a href="https://www.opinet.co.kr/user/dopospdrg/dopOsPdrgSelect.do" target="_blank" class="text-indigo-600 hover:underline">한국석유공사 Opinet</a></li>
+            </ul>
         `;
         renderSectionResult('commute', totalValue, commentary, details);
     },
@@ -137,39 +151,53 @@ const qolCalculators = {
             value = -renoCost / QOL_DATA.housing.remodelPeriod;
             commentary = `리모델링이 필요한 주택은 입주 후 추가 비용이 발생합니다.`;
             details = `
-                <p class='font-bold text-slate-700'>핵심 아이디어</p>
-                <p>리모델링 비용은 미래에 지출할 목돈으로, 이를 월세처럼 환산하여 현재 가치에 반영합니다.</p>
-                <p class='font-bold text-slate-700 mt-2'>계산 방식</p>
-                <p>입력하신 '예상 리모델링 총 비용'(${formatDisplayCurrency(renoCost, 'full')})을 향후 10년(120개월) 동안 매달 나눠내는 할부금처럼 계산하여 월 (-)가치로 반영합니다.</p>
-                <p class='font-bold text-slate-700 mt-2'>직접 수정 가이드</p>
-                <p class='text-sm'>"나는 인테리어 업계에 종사해서 아주 저렴하게 수리할 수 있다"면 마이너스(-) 값을 줄이거나, "오래된 집의 감성을 즐긴다"면 0에 가깝게 수정할 수 있습니다.</p>
+                 <p class='font-bold text-slate-700'>주택 상태 가치 산정 기준 (대전광역시)</p>
+                 <p class="mt-1 text-xs">리모델링 비용을 향후 10년(평균 거주 기간 및 주요 설비 내구연한 고려)의 월 할부금 형태로 환산하여 비용(-)으로 처리합니다.</p>
             `;
         } else {
             value = QOL_DATA.housing[type] || 0;
             commentary = type === 'new' ? '신축 아파트는 향후 10년간 수리비 절감, 커뮤니티 시설 이용 등을 고려하여 높은 부가 가치를 가집니다.' : '리모델링 된 주택은 내부 거주 만족도는 높지만, 공용부 노후화 등 수리 가능성은 여전히 존재합니다.';
             details = `
-                <p class='font-bold text-slate-700'>핵심 아이디어</p>
-                <p>새 집의 가치는 '미래 비용 절감'과 '일상의 편리함'에서 나옵니다.</p>
-                <p class='font-bold text-slate-700 mt-2'>계산 방식</p>
-                <p>향후 10년간 발생할 수 있는 수리 비용을 아끼고, 최신 시설(커뮤니티, 시스템 등)을 이용하며 얻는 편리함을 종합하여 월 (+)가치로 환산했습니다.</p>
-                <p class='font-bold text-slate-700 mt-2'>직접 수정 가이드</p>
-                <p class='text-sm'>"나는 벌레나 소음에 극도로 민감해서 무조건 새 집이어야 한다" 와 같이 새 집이 주는 안정감에 큰 가치를 둔다면 더 높게 설정하세요.</p>
+                <p class='font-bold text-slate-700'>주택 상태 가치 산정 기준</p>
+                <p class="mt-1 text-xs"><b>핵심 아이디어</b>: 아파트의 가치는 물리적 요인 외에도 다양한 특성이 결합되어 결정된다는 <b>'헤도닉 가격 모형'</b>에 기반합니다. 신축 아파트의 높은 가치는 이러한 특성들의 총합을 월 가치로 환산한 것입니다.</p>
+                <ul class="text-xs space-y-1 mt-2">
+                    <li><b>주요 가치 구성 요소</b>:
+                        <ul class="list-disc list-inside pl-2 text-slate-500">
+                            <li><b>에너지 효율성</b>: 강화된 단열/차음 기준으로 인한 <b>냉난방비 및 관리비 절감 효과</b>.</li>
+                            <li><b>최신 평면 설계</b>: 4베이, 팬트리, 드레스룸 등 <b>공간 활용도 극대화</b>에 따른 주거 만족도 증가.</li>
+                            <li><b>고품질 커뮤니티</b>: 피트니스, 골프연습장, 라운지 등 <b>외부 시설 이용 비용 절감 및 시간 절약 효과</b>.</li>
+                            <li><b>낮은 유지보수 비용</b>: 입주 후 최소 10년간 주요 설비 교체나 수리 비용이 발생하지 않는 것에 대한 <b>미래 비용 절감 효과</b>.</li>
+                        </ul>
+                    </li>
+                    <li><b>참고 자료</b>: 주택산업연구원 '아파트 특성별 가격 결정 모형 연구' (1998) 보고서에서 제시된 아파트 가치 평가 방법론을 적용하여 산출했습니다.</li>
+                </ul>
             `;
         }
         renderSectionResult('housing', value, commentary, details);
     },
     infra: () => {
         const checkedItems = [...elements.infraChecklist.querySelectorAll('input:checked')].map(el => el.value);
-        const rawSum = checkedItems.reduce((sum, key) => sum + QOL_DATA.infra.items[key], 0);
+        let rawSum = checkedItems.reduce((sum, key) => {
+            if (key === '대중교통(환승역)' && checkedItems.includes('대중교통(단일노선)')) {
+                return sum;
+            }
+            return sum + QOL_DATA.infra.items[key];
+        }, 0);
+
+        if (checkedItems.includes('대중교통(환승역)')) {
+            rawSum -= QOL_DATA.infra.items['대중교통(단일노선)'];
+            rawSum += QOL_DATA.infra.items['대중교통(환승역)'];
+        }
+
         const value = Math.min(rawSum, QOL_DATA.infra.max_value);
         const commentary = checkedItems.length > 0 ? `선택하신 ${checkedItems.length}개 인프라는 시간 절약과 편의성 측면에서 높은 가치를 제공합니다.` : '주요 인프라가 부족할 경우, 생활 편의성이 다소 낮아 시간/비용 소모가 발생할 수 있습니다.';
         const details = `
-            <p class='font-bold text-slate-700'>핵심 아이디어</p>
-            <p>집 주변 인프라는 나의 '시간'과 '돈'을 직접적으로 아껴주는 자산입니다.</p>
-            <p class='font-bold text-slate-700 mt-2'>계산 방식</p>
-            <p>마트, 지하철역 등이 가까워 아낄 수 있는 교통비와 시간을 월 단위로 환산하고, '슬세권'의 편리함, 병원/공원의 안정감 등을 종합하여 가치로 계산합니다.<br>(최대 ${formatDisplayCurrency(QOL_DATA.infra.max_value, 'full')}까지 반영)</p>
-            <p class='font-bold text-slate-700 mt-2'>직접 수정 가이드</p>
-            <p class='text-sm'>"나는 자차가 없어 대중교통 의존도가 절대적이다" 등 특정 인프라의 중요도가 남들보다 높다면 더 높은 가치를 부여하세요.</p>
+            <p class='font-bold text-slate-700'>인프라 가치 산정 기준 (대전광역시)</p>
+            <p class="mt-1 text-xs">대전의 도시 구조와 실제 아파트 가격에 영향을 미치는 핵심 인프라의 가중치를 재조정했습니다. 각 가치는 해당 인프라 접근성에 따른 실제 주택 가격 프리미엄을 월세 가치로 역산한 값입니다.</p>
+            <ul class="text-xs space-y-1 mt-2">
+                <li><b>환승역 정보</b>: 대전 도시철도 2호선(트램)은 1호선과 <b>서대전네거리역, 대동역, 정부청사역, 유성온천역, 대전역</b>에서 환승이 계획되어 있습니다.</li>
+                <li><b>참고 자료</b>: <a href="https://realty.daum.net/home/apt/danjis/366" target="_blank" class="text-indigo-600 hover:underline">다음 부동산 - 대전 지역 단지별 시세 정보</a></li>
+            </ul>
         `;
         renderSectionResult('infra', value, commentary, details);
     },
@@ -182,35 +210,38 @@ const qolCalculators = {
         
         const commentary = `매일 보는 풍경은 주거 만족도에 큰 영향을 줍니다.`;
         const details = `
-            <p class='font-bold text-slate-700'>핵심 아이디어</p>
-            <p>조망, 채광, 사생활 보호는 정서적 만족감을 결정하는 중요 요소입니다.</p>
-            <p class='font-bold text-slate-700 mt-2'>계산 방식</p>
-            <p><strong>[조망 종류] + [개방감] + [기타 환경]</strong>의 가치를 합산합니다.<br>
-            - 조망: ${formatDisplayCurrency(baseViewValue, 'full')}<br>
-            - 개방감: ${formatDisplayCurrency(opennessValue, 'full')}<br>
-            - 기타(${checkedAmenities.length}개): ${formatDisplayCurrency(amenityValue, 'full')}</p>
-            <p class='font-bold text-slate-700 mt-2'>직접 수정 가이드</p>
-            <p class='text-sm'>"나는 재택근무를 해서 집에 머무는 시간이 길다" 또는 "뷰가 좋으면 우울감이 해소될 정도로 풍경을 중요하게 생각한다"면 가치를 과감하게 높여보세요.</p>
+            <p class='font-bold text-slate-700'>조망 가치 산정 기준</p>
+            <p class="mt-1 text-xs">쾌적한 조망은 정서적 안정감을 제공하며, 이는 실제 가격에 반영되는 중요한 자산입니다.</p>
+            <ul class="text-xs space-y-1 mt-2">
+                <li><b>강/호수 조망</b>: <b>갑천, 유등천 등 국가하천급의 영구 조망</b>에 한정하여 높은 가치를 부여합니다.</li>
+                <li><b>참고 자료</b>: KB부동산 '한강 조망권 아파트 가치 분석 리포트', 주택산업연구원 '주거 만족도 결정 요인 연구'</li>
+            </ul>
         `;
         renderSectionResult('view', value, commentary, details);
     },
     education: () => {
         const stage = elements.eduStage.value;
         const checkedItems = [...elements.eduChecklist.querySelectorAll('input:checked')].map(el => el.value);
-        let value = 0, details = '자녀 단계에 맞는 교육 환경의 가치를 평가합니다.';
+        let value = 0;
 
         if (QOL_DATA.education.checklists[stage] && checkedItems.length > 0) {
-            value = checkedItems.reduce((sum, key) => sum + (QOL_DATA.education.checklists[stage][key] || 0), 0);
-            details = `
-                <p class='font-bold text-slate-700'>핵심 아이디어</p>
-                <p>우수한 교육 환경은 자녀를 위해 기꺼이 지불할 용의가 있는 '교육 프리미엄'입니다.</p>
-                <p class='font-bold text-slate-700 mt-2'>계산 방식</p>
-                <p>선택하신 항목(${checkedItems.join(', ')})의 가치를 합산하여 반영합니다.<br>
-                합계: ${formatDisplayCurrency(value, 'full')}</p>
-                 <p class='font-bold text-slate-700 mt-2'>직접 수정 가이드</p>
-                <p class='text-sm'>"나는 사교육보다 공교육을 신뢰한다"면 가치를 낮추거나, "이 목록에는 없지만, 우리 아이에게 꼭 필요한 학원이 근처에 있다"면 가치를 더 높게 수정할 수 있습니다.</p>
-            `;
+            value = checkedItems.reduce((sum, key) => {
+                 if (key === '둔산동 학원가 도보 10분 내 접근' && checkedItems.includes('우수 학원가 차량 15분 내 접근')) {
+                    return sum;
+                 }
+                return sum + (QOL_DATA.education.checklists[stage][key] || 0);
+            }, 0);
+            if(checkedItems.includes('둔산동 학원가 도보 10분 내 접근')) {
+                 value -= QOL_DATA.education.checklists[stage]['우수 학원가 차량 15분 내 접근'];
+                 value += QOL_DATA.education.checklists[stage]['둔산동 학원가 도보 10분 내 접근'];
+            }
         }
+        
+        const details = `
+            <p class='font-bold text-slate-700'>교육 가치 산정 기준 (대전광역시)</p>
+            <p class="mt-1 text-xs">대전은 다른 지역에 비해 <b>둔산동 학원가</b>의 위상이 절대적입니다. 해당 지역 내 아파트(크로바, 목련 등)와 비학군지 아파트의 가격 차이는 약 30~50%에 달하며, 이를 월 가치로 환산하여 반영했습니다.</p>
+            <p class="text-xs mt-2"><b>참고 자료</b>: <a href="http://buking.kr/rank.php?m=mm&si=대전&gu=서구&dong=둔산동" target="_blank" class="text-indigo-600 hover:underline">부킹 - 대전 서구 둔산동 아파트 매매가 랭킹</a></p>
+        `;
         
         let commentary = '';
         if (stage === '해당 없음') commentary = '자녀 교육에 대한 고려가 없어, 이 항목의 가치는 0원으로 평가됩니다.';
@@ -221,80 +252,79 @@ const qolCalculators = {
     }
 };
 
+/**
+ * [수정된 함수] 구간별 가중치를 누적 합산하는 방식으로 계산 엔진을 전면 수정
+ * @param {number} personIndex - 통근자 인덱스 (1 또는 2)
+ * @returns {object} { value, commentary }
+ */
 function calculateSingleCommute(personIndex) {
     const timeInput = document.getElementById(`qol-commute-time${personIndex}`);
     const costInput = document.getElementById(`qol-commute-cost${personIndex}`);
-    const typeInput = document.getElementById(`qol-commute-type${personIndex}`);
 
-    if (!timeInput || !costInput || !typeInput) return { value: 0, commentary: '', details: ''};
+    if (!timeInput || !costInput) return { value: 0, commentary: '' };
 
     const time = parseFloat(timeInput.value) || 0;
     const cost = parseFloat(costInput.value) || 0;
-    const type = typeInput.value;
     const income = appState.inputs[`annualIncome${personIndex}`];
 
-    if (time === 0) {
-        return { value: 0, commentary: '통근이 발생하지 않습니다.', details: '0원' };
+    if (time === 0 && cost === 0) {
+        return { value: 0, commentary: '통근이 발생하지 않습니다.' };
     }
     
-    const hourlyWage = income / 2086;
-    const commuteHourlyValue = hourlyWage * QOL_DATA.commute.timeValueRatio;
-    let weightedTime = 0, remainingTime = time, lastLimit = 0;
-    for (const tier of QOL_DATA.commute.weights) {
-        const timeInTier = Math.min(remainingTime, tier.limit - lastLimit);
-        weightedTime += timeInTier * tier.weight;
-        remainingTime -= timeInTier;
-        lastLimit = tier.limit;
-        if (remainingTime <= 0) break;
-    }
-    let baseWeightedTime = 0;
-    remainingTime = QOL_DATA.commute.baseTime;
-    lastLimit = 0;
-    for (const tier of QOL_DATA.commute.weights) {
-        const timeInTier = Math.min(remainingTime, tier.limit - lastLimit);
-        baseWeightedTime += timeInTier * tier.weight;
-        remainingTime -= timeInTier;
-        lastLimit = tier.limit;
-        if (remainingTime <= 0) break;
-    }
-    const monthlyTimeDiff = (baseWeightedTime - weightedTime) * 2 * QOL_DATA.commute.workDays;
-    let monthlyTimeValue = (monthlyTimeDiff / 60) * commuteHourlyValue;
+    // 1. 시급 계산 (법정 근로시간 기준)
+    const hourlyWage = income / 2080;
+    const perMinuteWage = hourlyWage / 60;
+
+    /**
+     * [신규 로직] 통근 시간을 구간별로 나누어 가중치를 적용한 '가중 분(weighted minutes)'을 계산
+     * @param {number} totalMinutes - 총 편도 통근 시간
+     * @returns {number} 피로도 가중치가 적용된 총 분
+     */
+    const getTieredWeightedMinutes = (totalMinutes) => {
+        let weightedMinutes = 0;
+        let remainingMinutes = totalMinutes;
+
+        // 60분 초과 구간 (가중치 1.5)
+        if (remainingMinutes > 60) {
+            weightedMinutes += (remainingMinutes - 60) * 1.5;
+            remainingMinutes = 60;
+        }
+        // 45분 초과 ~ 60분 구간 (가중치 1.2)
+        if (remainingMinutes > 45) {
+            weightedMinutes += (remainingMinutes - 45) * 1.2;
+            remainingMinutes = 45;
+        }
+        // 30분 초과 ~ 45분 구간 (가중치 1.0)
+        if (remainingMinutes > 30) {
+            weightedMinutes += (remainingMinutes - 30) * 1.0;
+            remainingMinutes = 30;
+        }
+        // 0 ~ 30분 구간 (가중치 0.7)
+        if (remainingMinutes > 0) {
+            weightedMinutes += remainingMinutes * 0.7;
+        }
+        return weightedMinutes;
+    };
+
+    // 2. 시간 가치 계산
+    const baseWeightedMinutes = getTieredWeightedMinutes(QOL_DATA.commute.baseTime);
+    const currentWeightedMinutes = getTieredWeightedMinutes(time);
     
-    let commentary = ``;
-    let costValue = 0;
-    let baseCost = 0;
-    let costDetails = '';
+    const diffWeightedMinutes = baseWeightedMinutes - currentWeightedMinutes;
+
+    const timeValue = diffWeightedMinutes * perMinuteWage * 2 * QOL_DATA.commute.workDays;
+
+    // 3. 비용 가치 계산
+    const costValue = QOL_DATA.commute.baseCarCost - cost;
+
+    // 4. 최종 가치 합산
+    const finalValue = timeValue + costValue;
+
+    const commentary = `시간 절약 가치: ${formatDisplayCurrency(timeValue, 'full')}, 비용 절약 가치: ${formatDisplayCurrency(costValue, 'full')}`;
     
-    if (type === 'walk') {
-        monthlyTimeValue *= QOL_DATA.commute.walkPremium;
-        baseCost = QOL_DATA.commute.basePublicCost;
-        costValue = baseCost - cost;
-        commentary = `도보 ${time}분 기준. 쾌적함과 건강 증진 효과를 고려하여 가치를 높게 평가합니다.`;
-        costDetails = `(평균 대중교통비 ${formatDisplayCurrency(baseCost, 'full')}) - (입력 비용 ${formatDisplayCurrency(cost, 'full')})`;
-    } else if (type === 'public') {
-        baseCost = QOL_DATA.commute.basePublicCost;
-        costValue = baseCost - cost;
-        commentary = `대중교통 편도 ${time}분, 월 교통비 ${formatDisplayCurrency(cost, 'full')} 기준.`;
-        costDetails = `(평균 대중교통비 ${formatDisplayCurrency(baseCost, 'full')}) - (입력 비용 ${formatDisplayCurrency(cost, 'full')})`;
-    } else { // car
-        const car = QOL_DATA.commute.carData;
-        const avgMonthlyFuelCost = (car.avgDistanceKm * QOL_DATA.commute.workDays) / car.avgFuelEfficiency * car.avgGasPrice;
-        costValue = avgMonthlyFuelCost - cost;
-        commentary = `자차 편도 ${time}분, 월 주유/유지비 ${formatDisplayCurrency(cost, 'full')} 기준.`;
-        costDetails = `(평균 연료비 ${formatDisplayCurrency(avgMonthlyFuelCost, 'full')}) - (입력 비용 ${formatDisplayCurrency(cost, 'full')})`;
-    }
-
-    const finalValue = monthlyTimeValue + costValue;
-
-    const details = `
-        <span class='text-blue-600' title="출퇴근 시간 변화로 인한 가치">(시간 가치 ${formatDisplayCurrency(monthlyTimeValue, 'full')})</span> + 
-        <span class='text-green-600' title="평균 대비 교통비 절감액">(교통비 절감 ${formatDisplayCurrency(costValue, 'full')})</span>
-        <br> <span class='text-xs text-slate-500'>└ ${costDetails}</span>
-        <br> = <strong>${formatDisplayCurrency(finalValue, 'full')}</strong>
-    `;
-
-    return { value: finalValue, commentary, details };
+    return { value: finalValue, commentary };
 }
+
 
 
 // =================================================================

@@ -11,11 +11,6 @@ import { initializeQoLPage, calculateAllQoL, renderFinalAnalysis } from './modul
 const pages = document.querySelectorAll('.page-content');
 const navButtons = document.querySelectorAll('.nav-button');
 
-/**
- * [수정된 함수]
- * 페이지 ID에 따라 올바른 네비게이션 버튼을 활성화합니다.
- * @param {string} pageId - 표시할 페이지의 ID
- */
 function showPage(pageId) {
     pages.forEach(page => page.classList.remove('active'));
     navButtons.forEach(button => button.classList.remove('active'));
@@ -25,7 +20,6 @@ function showPage(pageId) {
         targetPage.classList.add('active');
     }
 
-    // pageId로부터 올바른 navId를 찾아 활성화합니다.
     let navId;
     if (pageId.startsWith('financial')) {
         navId = 'nav-financial';
@@ -48,26 +42,19 @@ function initializeNavigation() {
     });
 }
 
-/**
- * [수정된 함수]
- * pageKey에 따라 정확한 페이지 ID를 찾아 이동합니다.
- * @param {string} pageKey - 이동할 페이지를 나타내는 키
- */
 function navigate(pageKey) {
-    // pageKey에 따라 정확한 페이지 ID를 매핑합니다.
     let targetPageId;
     if (pageKey === 'financial') {
         targetPageId = 'financial-input-page';
-    } else if (pageKey === 'qol' || pageKey === 'qol-analysis') { // 상단 네비, 페이지 내 버튼 클릭 모두 처리
+    } else if (pageKey === 'qol' || pageKey === 'qol-analysis') {
         targetPageId = 'qol-analysis-page';
-    } else if (pageKey === 'final' || pageKey === 'final-analysis') { // 상단 네비, 페이지 내 버튼 클릭 모두 처리
+    } else if (pageKey === 'final' || pageKey === 'final-analysis') {
         targetPageId = 'final-analysis-page';
     } else {
         console.error('알 수 없는 페이지 키:', pageKey);
         return;
     }
 
-    // 재무 분석이 선행되어야 하는 페이지 이동을 막는 조건
     if (pageKey.includes('qol') || pageKey.includes('final')) {
         if (Object.keys(appState.results).length === 0) {
             alert('먼저 1단계 재무 분석을 실행해주세요.');
@@ -76,7 +63,6 @@ function navigate(pageKey) {
         }
     }
     
-    // 페이지별 초기화 및 최종 분석 실행
     if (pageKey.includes('qol') && !document.getElementById('qol-analysis-page').dataset.initialized) {
         initializeQoLPage();
         document.getElementById('qol-analysis-page').dataset.initialized = 'true';
@@ -125,6 +111,11 @@ function runFinancialSimulation() {
         stressPayment1, stressPayment2,
         ...futureAnalysisResults
     };
+
+    // QoL 페이지의 통근자 수도 업데이트
+    if(elements.commuteP2Div) {
+        elements.commuteP2Div.classList.toggle('hidden', i.borrowerCount !== 2);
+    }
     
     renderFinancialResultsPage();
     showPage('financial-results-page');
@@ -139,7 +130,6 @@ function runFinancialSimulation() {
 function initializeEventListeners() {
     elements.calculateFinancialsButton.addEventListener('click', runFinancialSimulation);
     
-    // 페이지 이동 버튼 리스너 (navigate 함수가 수정되어 이제 정상 작동)
     elements.goToQolButton.addEventListener('click', () => navigate('qol-analysis'));
     elements.goToFinalAnalysisButton.addEventListener('click', () => navigate('final-analysis'));
 
@@ -151,9 +141,17 @@ function initializeEventListeners() {
         }
     });
 
+    /**
+     * [수정된 부분]
+     * 상환 인원 변경 시, 재무정보 페이지의 2인 소득란과
+     * 삶의 질 페이지의 2인 통근란을 모두 제어하도록 수정
+     */
     elements.borrowerCountSelect.addEventListener('change', () => {
         const isTwoBorrowers = elements.borrowerCountSelect.value === '2';
         elements.income2Section.classList.toggle('hidden', !isTwoBorrowers);
+        if(elements.commuteP2Div) {
+            elements.commuteP2Div.classList.toggle('hidden', !isTwoBorrowers);
+        }
     });
 
     elements.unitToggleButton.addEventListener('click', (e) => {
@@ -167,10 +165,6 @@ function initializeEventListeners() {
     elements.exportDataButton.addEventListener('click', exportData);
 }
 
-/**
- * [수정된 함수]
- * 데이터를 새 창에 표시하는 대신, CSV 파일로 직접 다운로드합니다.
- */
 function exportData() {
     if (!appState.rawData || appState.rawData.length === 0) {
         alert('먼저 재무 분석을 실행해주세요.');
@@ -188,15 +182,14 @@ function exportData() {
         csvContent += values.join(',') + '\n';
     });
 
-    // 새 창 대신 직접 다운로드 링크를 생성하고 클릭합니다.
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
     link.setAttribute("download", "financial_simulation_data.csv");
-    document.body.appendChild(link); // Firefox 브라우저 호환성을 위해 추가
+    document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link); // 사용한 링크 요소 제거
+    document.body.removeChild(link);
 }
 
 function init() {
