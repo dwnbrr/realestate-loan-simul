@@ -108,11 +108,11 @@ function fillFinancialResultsContent(results, displayUnit) {
             <p class="text-2xl sm:text-3xl font-bold text-indigo-600 mt-1">${formatDisplayCurrency(results.totalLifetimeSurplusPV, displayUnit)}</p>
         </div>
         <div class="pt-4 border-t">
-            <h3 class="text-base sm:text-lg font-semibold text-slate-700">총 누적 이자 (공제 후, 현재가치)</h3>
+            <h3 class="text-base sm:text-lg font-semibold text-slate-700">총 누적 이자 (소득공제 후, 현재가치)</h3>
             <p class="text-xl sm:text-2xl font-bold text-red-600 mt-1">${formatDisplayCurrency(results.totalInterestPV, displayUnit)}</p>
         </div>
         <div class="pt-4 border-t">
-            <h3 class="text-base sm:text-lg font-semibold text-slate-700">실질 이자 비용 (공제 후, vs 물가)</h3>
+            <h3 class="text-base sm:text-lg font-semibold text-slate-700">실질 이자 비용 (소득공제 후, 물가상승률 반영 현재가치)</h3>
             <p class="text-xl sm:text-2xl font-bold text-amber-600 mt-1">${formatDisplayCurrency(results.totalRealInterestPV, displayUnit)}</p>
         </div>
     `;
